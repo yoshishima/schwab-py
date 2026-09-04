@@ -5,7 +5,7 @@ import os
 import pytest
 import pytz
 import unittest
-from unittest.mock import ANY, MagicMock, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch, PropertyMock
 
 from schwab.client import AsyncClient, Client
 from schwab.orders.generic import OrderBuilder
@@ -116,8 +116,22 @@ class _TestClient:
 
         self.client.get_account_numbers()
 
+        response.json.assert_called_once_with()
         register_redactions.assert_called_once_with(
                 {'accountNumber': '123456789'})
+
+
+    def test_response_body_not_inspected_when_debug_disabled(self):
+        response = MagicMock()
+        response_text = PropertyMock(return_value='large response body')
+        type(response).text = response_text
+        self.mock_session.get.return_value = response
+        self.client.logger.setLevel(logging.INFO)
+
+        self.client.get_account_numbers()
+
+        response.json.assert_not_called()
+        response_text.assert_not_called()
 
 
 

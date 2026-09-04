@@ -1,5 +1,4 @@
 from .base import BaseClient
-from ..debug import register_redactions_from_response
 from ..utils import LazyLog
 
 import json
@@ -18,7 +17,6 @@ class AsyncClient(BaseClient):
                 req_num, dest, LazyLog(lambda: json.dumps(params, indent=4)))
 
         resp = await self.session.get(dest, params=params)
-        register_redactions_from_response(resp)
         self._log_response(resp, req_num)
         return resp
 
@@ -30,7 +28,6 @@ class AsyncClient(BaseClient):
                 req_num, dest, LazyLog(lambda: json.dumps(data, indent=4)))
 
         resp = await self.session.post(dest, json=data)
-        register_redactions_from_response(resp)
         self._log_response(resp, req_num)
         return resp
 
@@ -42,7 +39,6 @@ class AsyncClient(BaseClient):
                 req_num, dest, LazyLog(lambda: json.dumps(data, indent=4)))
 
         resp = await self.session.put(dest, json=data)
-        register_redactions_from_response(resp)
         self._log_response(resp, req_num)
         return resp
 
@@ -53,6 +49,5 @@ class AsyncClient(BaseClient):
         self.logger.debug('Req %s: DELETE to %s', req_num, dest)
 
         resp = await self.session.delete(dest)
-        register_redactions_from_response(resp)
         self._log_response(resp, req_num)
         return resp

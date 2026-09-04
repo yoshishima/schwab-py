@@ -15,6 +15,7 @@ import warnings
 
 from schwab.orders.generic import OrderBuilder
 
+from ..debug import register_redactions_from_response
 from ..utils import EnumEnforcer
 
 
@@ -60,6 +61,10 @@ class BaseClient(EnumEnforcer):
     _DATE = datetime.date
 
     def _log_response(self, resp, req_num):
+        if not self.logger.isEnabledFor(logging.DEBUG):
+            return
+
+        register_redactions_from_response(resp)
         self.logger.debug('Req %s: response: %s, content=%s',
             req_num, resp.status_code, resp.text)
 
