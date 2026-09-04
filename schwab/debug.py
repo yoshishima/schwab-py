@@ -1,5 +1,5 @@
 import atexit
-import httpx
+import inspect
 import json
 import logging
 import sys
@@ -47,19 +47,28 @@ class LogRedactor:
 
 def register_redactions_from_response(resp):
     '''
-    Convenience method that calls ``register_redactions`` if resp represents a
-    successful response. Note this method assumes that resp has a JSON contents.
+    Register sensitive values from a response before its body is logged.
+
+    Both successful and error responses are inspected because Schwab may echo
+    account identifiers in an error payload. Non-JSON responses are ignored.
     '''
-    if resp.status_code == httpx.codes.OK:
-        try:
-            register_redactions(resp.json())
-        except json.decoder.JSONDecodeError:
-            pass
+    try:
+        payload = resp.json()
+        if inspect.isawaitable(payload):
+            close = getattr(payload, 'close', None)
+            if close is not None:
+                close()
+            return
+        register_redactions(payload)
+    except (json.decoder.JSONDecodeError, UnicodeDecodeError):
+        pass
 
 
 def register_redactions(obj, key_path=None,
                         bad_patterns=[
-                            'auth', 'acl', 'displayname', 'id', 'key', 'token'],
+                            'auth', 'acl', 'displayname', 'id', 'key', 'token',
+                            'accountnumber', 'hashvalue', 'firstname',
+                            'lastname', 'nickname'],
                         whitelisted=set([
                             'requestid',
                             'token_type',
@@ -138,7 +147,20 @@ def _enable_bug_report_logging(output=sys.stderr, loggers=None):
         logger.setLevel(logging.DEBUG)
         logger.addHandler(handler)
 
+    logs_written = False
+
     def write_logs():
+        nonlocal logs_written
+        if logs_written:
+            return
+        logs_written = True
+
+        for logger in loggers:
+            logger.removeHandler(handler)
+
+        if getattr(output, 'closed', False):
+            return
+
         print(file=output)
         print(' ### BEGIN REDACTED LOGS ###', file=output)
         print(file=output)

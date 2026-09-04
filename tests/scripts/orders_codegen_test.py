@@ -50,6 +50,8 @@ class LatestOrderTest(unittest.TestCase):
 
         self.assertEqual(self.main(), 0)
 
+        mock_client_from_token_file.assert_called_once_with(
+                'filename.json', 'api-key', 'app-secret')
         mock_construct_repeat_order.assert_called_once_with(orders[3])
         mock_print.assert_has_calls([
                 call('# Order ID', 401),
@@ -105,7 +107,7 @@ class LatestOrderTest(unittest.TestCase):
         self.add_arg('--app_secret')
         self.add_arg('app-secret')
 
-        orders = {'error': 'invalid'}
+        orders = {'errors': [{'message': 'invalid'}]}
 
         mock_client = MagicMock()
         mock_client_from_token_file.return_value = mock_client
@@ -116,7 +118,7 @@ class LatestOrderTest(unittest.TestCase):
 
         mock_construct_repeat_order.assert_not_called()
         mock_print.assert_called_once_with(
-                AnyStringWith('Schwab returned error: "invalid"'))
+                AnyStringWith('Schwab returned error:'))
 
 
     @no_duplicates

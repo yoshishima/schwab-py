@@ -9,7 +9,9 @@ import multiprocess
 import os
 import psutil
 import queue
+import stat
 import sys
+import tempfile
 import time
 import urllib
 import urllib3
@@ -31,8 +33,27 @@ def __make_update_token_func(token_path):
     def update_token(t, *args, **kwargs):
         get_logger().info('Updating token to file %s', token_path)
 
-        with open(token_path, 'w') as f:
-            json.dump(t, f)
+        token_dir = os.path.dirname(os.path.abspath(token_path))
+        fd, temporary_path = tempfile.mkstemp(
+                dir=token_dir, prefix='.schwab-token-', text=True)
+        try:
+            if hasattr(os, 'fchmod'):
+                os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+            with os.fdopen(fd, 'w') as f:
+                fd = None
+                json.dump(t, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary_path, token_path)
+            os.chmod(token_path, stat.S_IRUSR | stat.S_IWUSR)
+        except Exception:
+            if fd is not None:
+                os.close(fd)
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
+            raise
     return update_token
 
 
@@ -276,6 +297,7 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                 psutil.Process(server.pid).kill()
             except psutil.NoSuchProcess:
                 pass
+            server.join(timeout=1.0)
 
     with callback_server():
         # Wait until the server successfully starts
@@ -361,8 +383,11 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
 
             # Attempt to fetch from the queue
             try:
+                queue_timeout = (
+                    0.1 if callback_timeout == 0
+                    else max(0, min(timeout_time - now, 0.1)))
                 received_url = output_queue.get(
-                        timeout=min(timeout_time - now, 0.1))
+                        timeout=queue_timeout)
                 break
             except queue.Empty:
                 pass
@@ -738,7 +763,8 @@ def easy_client(api_key, app_secret, callback_url, token_path, asyncio=False,
     # Detect whether we're running in a notebook
     if __running_in_notebook():
         c = client_from_manual_flow(api_key, app_secret, callback_url, 
-                                    token_path, enforce_enums=enforce_enums)
+                                    token_path, asyncio=asyncio,
+                                    enforce_enums=enforce_enums)
         logger.info(
             'Returning client fetched using manual flow, writing' +
             'token to \'%s\'', token_path)

@@ -895,8 +895,13 @@ class EasyClientTest(unittest.TestCase):
         mock_client = MagicMock()
         client_from_manual_flow.return_value = mock_client
 
-        c = auth.easy_client(API_KEY, APP_SECRET, CALLBACK_URL, self.token_path)
+        c = auth.easy_client(
+                API_KEY, APP_SECRET, CALLBACK_URL, self.token_path,
+                asyncio=True, enforce_enums=False)
         self.assertIs(c, mock_client)
+        client_from_manual_flow.assert_called_once_with(
+                API_KEY, APP_SECRET, CALLBACK_URL, self.token_path,
+                asyncio=True, enforce_enums=False)
 
 
     @no_duplicates

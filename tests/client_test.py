@@ -105,6 +105,20 @@ class _TestClient:
         self.assertEqual(client.token_age(), 1000)
 
 
+    @patch('schwab.debug.register_redactions')
+    def test_registers_response_redactions(self, register_redactions):
+        response = MagicMock()
+        response.status_code = 200
+        response.text = '{"accountNumber": "123456789"}'
+        response.json.return_value = {'accountNumber': '123456789'}
+        self.mock_session.get.return_value = response
+
+        self.client.get_account_numbers()
+
+        register_redactions.assert_called_once_with(
+                {'accountNumber': '123456789'})
+
+
 
     # get_account
 
@@ -2160,6 +2174,39 @@ class _TestClient:
     def test_get_market_hours_date_str(self):
         with self.assertRaises(ValueError) as cm:
             self.client.get_market_hours(
+                    self.client_class.MarketHours.Market.EQUITY,
+                    date='2020-01-02')
+        self.assertEqual(str(cm.exception),
+                         "expected type 'datetime.date' for " +
+                         "date, got 'builtins.str'")
+
+
+    def test_get_market_hours_for_market(self):
+        self.client.get_market_hours_for_market(
+                self.client_class.MarketHours.Market.EQUITY)
+        self.mock_session.get.assert_called_once_with(
+            self.make_url('/marketdata/v1/markets/equity'), params={})
+
+
+    def test_get_market_hours_for_market_unchecked(self):
+        self.client.set_enforce_enums(False)
+        self.client.get_market_hours_for_market('not-a-market')
+        self.mock_session.get.assert_called_once_with(
+            self.make_url('/marketdata/v1/markets/not-a-market'), params={})
+
+
+    def test_get_market_hours_for_market_date(self):
+        self.client.get_market_hours_for_market(
+                self.client_class.MarketHours.Market.EQUITY,
+                date=NOW_DATE)
+        self.mock_session.get.assert_called_once_with(
+            self.make_url('/marketdata/v1/markets/equity'), params={
+                'date': NOW_DATE_ISO})
+
+
+    def test_get_market_hours_for_market_date_str(self):
+        with self.assertRaises(ValueError) as cm:
+            self.client.get_market_hours_for_market(
                     self.client_class.MarketHours.Market.EQUITY,
                     date='2020-01-02')
         self.assertEqual(str(cm.exception),

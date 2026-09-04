@@ -382,6 +382,7 @@ Market Hours
 ------------
 
 .. automethod:: schwab.client.Client.get_market_hours
+.. automethod:: schwab.client.Client.get_market_hours_for_market
 .. autoclass:: schwab.client.Client.MarketHours
   :members:
   :undoc-members:

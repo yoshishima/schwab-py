@@ -17,7 +17,7 @@ def latest_order_main(sys_args):
     required.add_argument('--app_secret', required=True)
 
     account_spec_group = parser.add_mutually_exclusive_group()
-    account_spec_group.add_argument('--account_id', type=int,
+    account_spec_group.add_argument('--account_id', type=str,
             help='Restrict lookups to a specific account ID')
 
     account_spec_group.add_argument('--account_hash', type=str,
@@ -25,15 +25,18 @@ def latest_order_main(sys_args):
 
     args = parser.parse_args(args=sys_args)
     client = client_from_token_file(
-            args.token_file, args.app_secret, args.api_key)
+            args.token_file, args.api_key, args.app_secret)
 
     # If the account ID is specified, find the corresponding account hash
     if args.account_id is not None:
         r = client.get_account_numbers()
-        assert r.status_code == httpx.codes.OK
+        if r.status_code != httpx.codes.OK:
+            print('Failed to fetch account numbers: HTTP {}'.format(
+                    r.status_code))
+            return -1
 
         for val in r.json():
-            if val['accountNumber'] == str(args.account_id):
+            if val['accountNumber'] == args.account_id:
                 account_hash = val['hashValue']
                 break
         else:
@@ -59,17 +62,19 @@ def latest_order_main(sys_args):
         if orders is None:
             return -1
 
-        if 'error' in orders:
+        if isinstance(orders, dict) and ('error' in orders or 'errors' in orders):
+            error = orders.get('errors', orders.get('error'))
             print(('Schwab returned error: "{}", This is most often caused ' +
-                   'by an invalid account ID or hash').format(orders['error']))
+                   'by an invalid account ID or hash').format(error))
             return -1
     else:
         orders = get_orders(lambda: client.get_orders_for_all_linked_accounts())
         if orders is None:
             return -1
 
-        if 'error' in orders:
-            print('Schwab returned error: "{}"'.format(orders['error']))
+        if isinstance(orders, dict) and ('error' in orders or 'errors' in orders):
+            error = orders.get('errors', orders.get('error'))
+            print('Schwab returned error: "{}"'.format(error))
             return -1
 
     # Construct and emit order code
@@ -91,7 +96,7 @@ def latest_order_main(sys_args):
             print(('# Warning: This order contains a non-"AutoRoute" value of ' +
                    '"destinationLinkName" ("{}").').format(
                            order['destinationLinkName']))
-            print('           This parameter appears to be broken in the ' +
+            print('#          This parameter appears to be broken in the ' +
                   'API, so it is omitted in this generated code.''')
             emit_destination_warning_newline = True
         if emit_destination_warning_newline:

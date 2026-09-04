@@ -1064,6 +1064,22 @@ class BaseClient(EnumEnforcer):
 
         return self._get_request('/marketdata/v1/markets', params)
 
+    def get_market_hours_for_market(self, market, *, date=None):
+        '''Retrieve market hours for a single market.
+
+        :param market: Market for which to return trading hours.
+        :param date: Date for which to return market hours. Accepts values up to
+                     one year from today. Accepts ``datetime.date``.
+        '''
+        market = self.convert_enum(market, self.MarketHours.Market)
+
+        params = {}
+        if date is not None:
+            params['date'] = self._format_date_as_day('date', date)
+
+        path = '/marketdata/v1/markets/{}'.format(market)
+        return self._get_request(path, params)
+
 
     ##########################################################################
     # Instrument

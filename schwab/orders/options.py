@@ -84,8 +84,6 @@ class OptionSymbol:
                 '(e.g. 240614) or one of datetime.date or ' +
                 'datetime.datetime')
 
-        assert(isinstance(self.expiration_date, datetime.date))
-
         strike = None
         try:
             strike = float(strike_price_as_string)

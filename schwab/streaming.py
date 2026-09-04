@@ -12,7 +12,7 @@ import logging
 import schwab
 import urllib.parse
 
-import websockets.legacy.client as ws_client
+from websockets.asyncio import client as ws_client
 
 from .utils import EnumEnforcer, LazyLog
 
@@ -101,7 +101,7 @@ class _Handler:
 class StreamClient(EnumEnforcer):
 
     def __init__(self, client, *, account_id=None,
-                 enforce_enums=True, ssl_context=None):
+                 enforce_enums=True, ssl_context=None, response_timeout=30.0):
         super().__init__(enforce_enums)
 
         self._ssl_context = ssl_context
@@ -118,6 +118,8 @@ class StreamClient(EnumEnforcer):
         # Internal fields
         self._request_id = 0
         self._handlers = defaultdict(list)
+        self._handler_tasks = set()
+        self._response_timeout = response_timeout
 
         # When listening for responses, we sometimes encounter non-response
         # messages. Since this happens outside the context of the handler
@@ -134,7 +136,10 @@ class StreamClient(EnumEnforcer):
         # Initialize the JSON parser to be the naive parser which directly calls
         # ``json.loads``
         self.json_decoder = NaiveJsonStreamDecoder()
-        self._lock = asyncio.Lock()
+        self._send_lock = asyncio.Lock()
+        self._message_waiters = deque()
+        self._response_waiters = {}
+        self._reader_task = None
 
     def set_json_decoder(self, json_decoder):
         '''
@@ -279,8 +284,118 @@ class StreamClient(EnumEnforcer):
 
                 break
 
+    def _validate_response(self, resp, request_id, service, command):
+        if 'response' not in resp:
+            raise UnexpectedResponse(resp, 'response payload missing')
+
+        response = resp['response'][0]
+
+        resp_request_id = int(response['requestid'])
+        if resp_request_id != request_id:
+            raise UnexpectedResponse(
+                resp, 'unexpected requestid: {}'.format(resp_request_id))
+
+        resp_service = response['service']
+        if resp_service != service:
+            raise UnexpectedResponse(
+                resp, 'unexpected service: {}'.format(resp_service))
+
+        resp_command = response['command']
+        if resp_command != command:
+            raise UnexpectedResponse(
+                resp, 'unexpected command: {}'.format(resp_command))
+
+        resp_code = response['content']['code']
+        if resp_code != 0:
+            raise UnexpectedResponseCode(
+                resp,
+                'unexpected response code: {}, msg is \'{}\''.format(
+                    resp_code, response['content']['msg']))
+
+    def _ensure_reader(self):
+        if self._reader_task is None or self._reader_task.done():
+            self._reader_task = asyncio.create_task(self._reader_loop())
+
+    async def _reader_loop(self):
+        deferred_messages = []
+        try:
+            while self._response_waiters or self._message_waiters:
+                while deferred_messages and self._message_waiters:
+                    waiter = self._message_waiters.popleft()
+                    if not waiter.done():
+                        waiter.set_result(deferred_messages.pop(0))
+
+                if not self._response_waiters and not self._message_waiters:
+                    break
+
+                msg = await self._receive()
+
+                if 'response' in msg and self._response_waiters:
+                    response_request_id = int(
+                            msg['response'][0]['requestid'])
+                    waiter = self._response_waiters.pop(
+                            response_request_id, None)
+
+                    # Preserve the historical behavior for malformed response
+                    # IDs: the sole request waiter receives the response and
+                    # raises UnexpectedResponse during validation.
+                    if waiter is None and len(self._response_waiters) == 1:
+                        _, waiter = self._response_waiters.popitem()
+
+                    if waiter is not None and not waiter.done():
+                        waiter.set_result(msg)
+                    elif self._message_waiters:
+                        waiter = self._message_waiters.popleft()
+                        if not waiter.done():
+                            waiter.set_result(msg)
+                    else:
+                        deferred_messages.append(msg)
+                elif self._message_waiters:
+                    waiter = self._message_waiters.popleft()
+                    if not waiter.done():
+                        waiter.set_result(msg)
+                else:
+                    deferred_messages.append(msg)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:
+            for waiter in self._response_waiters.values():
+                if not waiter.done():
+                    waiter.set_exception(exc)
+            for waiter in self._message_waiters:
+                if not waiter.done():
+                    waiter.set_exception(exc)
+            self._response_waiters.clear()
+            self._message_waiters.clear()
+        finally:
+            self._overflow_items.extendleft(deferred_messages)
+            self._reader_task = None
+
+    async def _send_request_and_await_response(
+            self, request, request_id, service, command):
+        loop = asyncio.get_running_loop()
+        waiter = loop.create_future()
+        self._response_waiters[request_id] = waiter
+
+        try:
+            async with self._send_lock:
+                await self._send({'requests': [request]})
+            self._ensure_reader()
+            if self._response_timeout is None:
+                resp = await waiter
+            else:
+                resp = await asyncio.wait_for(
+                        waiter, timeout=self._response_timeout)
+        finally:
+            self._response_waiters.pop(request_id, None)
+
+        self._validate_response(resp, request_id, service, command)
+
     async def _service_op(self, symbols, service, command, field_type=None,
                           *, fields=None):
+        if isinstance(symbols, str):
+            symbols = [symbols]
+
         parameters = {
             'keys': ','.join(symbols)
         }
@@ -296,13 +411,22 @@ class StreamClient(EnumEnforcer):
             service=service, command=command,
             parameters=parameters)
 
-        async with self._lock:
-            await self._send({'requests': [request]})
-            await self._await_response(request_id, service, command)
+        await self._send_request_and_await_response(
+                request, request_id, service, command)
 
     async def handle_message(self):
-        async with self._lock:
-            msg = await self._receive()
+        loop = asyncio.get_running_loop()
+        waiter = loop.create_future()
+        self._message_waiters.append(waiter)
+        self._ensure_reader()
+
+        try:
+            msg = await waiter
+        finally:
+            try:
+                self._message_waiters.remove(waiter)
+            except ValueError:
+                pass
 
         # response
         if 'response' in msg:
@@ -322,7 +446,9 @@ class StreamClient(EnumEnforcer):
                         # Check if h is an awaitable, if so schedule it
                         # This allows for both sync and async handlers
                         if inspect.isawaitable(h):
-                            asyncio.ensure_future(h)
+                            task = asyncio.create_task(h)
+                            self._handler_tasks.add(task)
+                            task.add_done_callback(self._handler_tasks.discard)
 
         # notify
         if 'notify' in msg:
@@ -336,7 +462,9 @@ class StreamClient(EnumEnforcer):
                         # Check if h is an awaitable, if so schedule oit
                         # This allows for both sync and async handlers
                         if inspect.isawaitable(h):
-                            asyncio.ensure_future(h)
+                            task = asyncio.create_task(h)
+                            self._handler_tasks.add(task)
+                            task.add_done_callback(self._handler_tasks.discard)
 
     ##########################################################################
     # LOGIN
@@ -370,7 +498,8 @@ class StreamClient(EnumEnforcer):
         # asynchronous, so work around by awaiting the response if necessary
         if inspect.iscoroutine(r):
             r = await r
-        assert r.status_code == httpx.codes.OK, r.raise_for_status()
+        if r.status_code != httpx.codes.OK:
+            r.raise_for_status()
         r = r.json()
 
         await self._init_from_preferences(
@@ -386,9 +515,11 @@ class StreamClient(EnumEnforcer):
         request, request_id = self._make_request(
             service='ADMIN', command='LOGIN',
             parameters=request_parameters)
-        async with self._lock:
+        async with self._send_lock:
             await self._send({'requests': [request]})
-            await self._await_response(request_id, 'ADMIN', 'LOGIN')
+            await asyncio.wait_for(
+                    self._await_response(request_id, 'ADMIN', 'LOGIN'),
+                    timeout=self._response_timeout)
 
     ##########################################################################
     # LOGOUT
@@ -402,9 +533,10 @@ class StreamClient(EnumEnforcer):
         request, request_id = self._make_request(
             service='ADMIN', command='LOGOUT',
             parameters={})
-        async with self._lock:
-            await self._send({'requests': [request]})
-            await self._await_response(request_id, 'ADMIN', 'LOGOUT')
+        await self._send_request_and_await_response(
+                request, request_id, 'ADMIN', 'LOGOUT')
+        await self._socket.close()
+        self._socket = None
 
     ##########################################################################
     # ACCT_ACTIVITY

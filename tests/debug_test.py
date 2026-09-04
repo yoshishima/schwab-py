@@ -125,6 +125,22 @@ class RegisterRedactionsTest(unittest.TestCase):
             r'\[.*\] Other Bad Number: 200002\n')
 
     @no_duplicates
+    def test_schwab_account_identifiers_and_names(self):
+        sensitive_values = {
+            'accountNumber': '123456789',
+            'hashValue': 'ABCDEF012345',
+            'firstName': 'Ada',
+            'lastName': 'Lovelace',
+            'nickName': 'Primary Brokerage',
+        }
+        schwab.debug.register_redactions(sensitive_values)
+
+        redacted = schwab.LOG_REDACTOR.redact(' '.join(
+                sensitive_values.values()))
+        for value in sensitive_values.values():
+            self.assertNotIn(value, redacted)
+
+    @no_duplicates
     @patch('schwab.debug.register_redactions', new_callable=Mock)
     def test_register_from_request_success(self, register_redactions):
         resp = MockResponse({'success': 1}, 200)
@@ -133,10 +149,10 @@ class RegisterRedactionsTest(unittest.TestCase):
 
     @no_duplicates
     @patch('schwab.debug.register_redactions', new_callable=Mock)
-    def test_register_from_request_not_okay(self, register_redactions):
+    def test_register_from_request_error_response(self, register_redactions):
         resp = MockResponse({'success': 1}, 403)
         schwab.debug.register_redactions_from_response(resp)
-        register_redactions.assert_not_called()
+        register_redactions.assert_called_with({'success': 1})
 
     @no_duplicates
     @patch('schwab.debug.register_redactions', new_callable=Mock)
