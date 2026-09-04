@@ -229,6 +229,13 @@ class OrderBuilderTest(unittest.TestCase):
         self.assertFalse(has_diff({}, self.order_builder.build()))
 
     @no_duplicates
+    def test_stop_price_preserves_exact_float_price(self):
+        self.order_builder.set_stop_price(0.57)
+        self.assertFalse(has_diff({
+            'stopPrice': '0.5700'
+        }, self.order_builder.build()))
+
+    @no_duplicates
     def test_stop_price_as_string(self):
         self.order_builder.set_stop_price('invalid')
         self.assertFalse(has_diff({
@@ -437,6 +444,13 @@ class OrderBuilderTest(unittest.TestCase):
 
         self.order_builder.clear_price()
         self.assertFalse(has_diff({}, self.order_builder.build()))
+
+    @no_duplicates
+    def test_price_preserves_exact_float_price(self):
+        self.order_builder.set_price(2.01)
+        self.assertFalse(has_diff({
+            'price': '2.01'
+        }, self.order_builder.build()))
 
     @no_duplicates
     def test_price_success_as_string(self):
@@ -1197,6 +1211,17 @@ class TruncateFloatTest(unittest.TestCase):
 
     def test_less_than_one(self):
         self.assertEqual('0.1212', truncate_float(.12121))
+
+    def test_exact_cent_values_avoid_binary_float_truncation(self):
+        expected = {
+            2.01: '2.01',
+            8.03: '8.03',
+            1.13: '1.13',
+            0.57: '0.5700',
+        }
+        for value, formatted in expected.items():
+            with self.subTest(value=value):
+                self.assertEqual(formatted, truncate_float(value))
 
     # same as above, except with negative numbers
 

@@ -1,5 +1,6 @@
 import warnings
 
+from decimal import Decimal, ROUND_DOWN
 from enum import Enum
 
 from schwab.orders import common
@@ -38,10 +39,19 @@ def truncate_float(flt):
     warnings.warn('passing floats to set_price and set_stop_price is '+
                   'deprecated and will be removed soon. Please update your '+
                   'code to pass prices as strings instead.')
-    if abs(flt) < 1 and flt != 0.0:
-        return '{:.4f}'.format(float(int(flt * 10000)) / 10000.0)
-    else:
-        return '{:.2f}'.format(float(int(flt * 100)) / 100.0)
+
+    value = Decimal(str(flt))
+    if not value.is_finite():
+        raise ValueError('price must be finite')
+
+    decimal_places = 4 if abs(value) < 1 and value != 0 else 2
+    quantum = Decimal(1).scaleb(-decimal_places)
+    truncated = value.quantize(quantum, rounding=ROUND_DOWN)
+
+    # Match the previous behavior for values that truncate to negative zero.
+    if truncated.is_zero():
+        truncated = abs(truncated)
+    return format(truncated, f'.{decimal_places}f')
 
 
 class OrderBuilder(EnumEnforcer):
