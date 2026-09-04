@@ -3,6 +3,8 @@ import unittest
 import sys
 
 from schwab.contrib.orders import construct_repeat_order, code_for_builder
+from schwab.orders.common import EquityInstruction, OrderType
+from schwab.orders.generic import OrderBuilder
 
 class ConstructRepeatOrderTest(unittest.TestCase):
 
@@ -115,6 +117,26 @@ class ConstructRepeatOrderTest(unittest.TestCase):
                 'quantity': 1.0
             }]
         }, repeat_order)
+
+
+    def test_market_order_without_legs(self):
+        builder = OrderBuilder().set_order_type(OrderType.MARKET)
+
+        self.assertBuilder({'orderType': 'MARKET'}, builder)
+
+
+    def test_builder_with_cleared_legs(self):
+        builder = (
+            OrderBuilder()
+            .set_order_type(OrderType.MARKET)
+            .add_equity_leg(EquityInstruction.BUY, 'AAPL', 1)
+            .clear_order_legs())
+
+        self.assertBuilder({'orderType': 'MARKET'}, builder)
+
+
+    def test_empty_builder(self):
+        self.assertBuilder({}, OrderBuilder())
 
 
     def test_missing_orderStrategyType(self):

@@ -220,7 +220,7 @@ class GenericBuilderAST:
             if value is not None:
                 self.top_level_fields.append(FieldAST(setter, enum_type, value))
 
-        for leg in builder._orderLegCollection:
+        for leg in builder._orderLegCollection or []:
             if leg['instrument']._assetType == 'EQUITY':
                 self.top_level_fields.append(EquityOrderLegAST(
                     leg['instruction'], leg['instrument']._symbol, 
@@ -236,7 +236,10 @@ class GenericBuilderAST:
     def render(self, imports, lines, paren_depth=0):
         imports['schwab.orders.generic'].add('OrderBuilder')
 
-        lines.append('OrderBuilder() \\')
+        lines.append('OrderBuilder()')
+        if self.top_level_fields:
+            lines[-1] += ' \\'
+
         for idx, field in enumerate(self.top_level_fields):
             field.render(imports, lines, paren_depth)
 
