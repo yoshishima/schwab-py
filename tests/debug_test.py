@@ -45,6 +45,42 @@ class RedactorTest(unittest.TestCase):
             '<REDACTED SECRET-1> message <REDACTED SECRET-2>',
             self.redactor.redact('secret-A message secret-B'))
 
+    @no_duplicates
+    def test_sorted_redactions_are_cached_until_registration(self):
+        self.redactor.register('secret-A', 'SECRET')
+        with patch('builtins.sorted', wraps=sorted) as sorted_mock:
+            self.redactor.redact('first line')
+            self.redactor.redact('second line')
+            self.assertEqual(1, sorted_mock.call_count)
+
+            self.redactor.register('secret-B', 'SECRET')
+            self.redactor.redact('third line')
+            self.assertEqual(2, sorted_mock.call_count)
+
+    @no_duplicates
+    def test_transient_redactions_are_bounded_and_clearable(self):
+        redactor = schwab.debug.LogRedactor(max_transient_entries=2)
+        redactor.register('api-key', 'API_KEY')
+        self.assertTrue(redactor.register(
+                'order-1', 'orderId', persistent=False))
+        self.assertTrue(redactor.register(
+                'order-2', 'orderId', persistent=False))
+        self.assertFalse(redactor.register(
+                'order-3', 'orderId', persistent=False))
+        self.assertEqual(3, len(redactor.redacted_strings))
+        self.assertTrue(redactor.transient_limit_reached)
+
+        redactor.clear_transient()
+        self.assertEqual({'api-key'}, set(redactor.redacted_strings))
+        self.assertFalse(redactor.transient_limit_reached)
+
+    @no_duplicates
+    def test_empty_transient_values_do_not_exhaust_limit(self):
+        redactor = schwab.debug.LogRedactor(max_transient_entries=0)
+        self.assertTrue(redactor.register(None, 'orderId', persistent=False))
+        self.assertTrue(redactor.register('', 'orderId', persistent=False))
+        self.assertFalse(redactor.transient_limit_reached)
+
 
 class RegisterRedactionsTest(unittest.TestCase):
 
@@ -54,6 +90,9 @@ class RegisterRedactionsTest(unittest.TestCase):
         self.dump_logs = schwab.debug._enable_bug_report_logging(
             output=self.captured, loggers=[self.logger])
         schwab.LOG_REDACTOR = schwab.debug.LogRedactor()
+
+    def tearDown(self):
+        self.dump_logs()
 
     @no_duplicates
     def test_empty_string(self):
@@ -145,14 +184,16 @@ class RegisterRedactionsTest(unittest.TestCase):
     def test_register_from_request_success(self, register_redactions):
         resp = MockResponse({'success': 1}, 200)
         schwab.debug.register_redactions_from_response(resp)
-        register_redactions.assert_called_with({'success': 1})
+        register_redactions.assert_called_with(
+                {'success': 1}, persistent=False)
 
     @no_duplicates
     @patch('schwab.debug.register_redactions', new_callable=Mock)
     def test_register_from_request_error_response(self, register_redactions):
         resp = MockResponse({'success': 1}, 403)
         schwab.debug.register_redactions_from_response(resp)
-        register_redactions.assert_called_with({'success': 1})
+        register_redactions.assert_called_with(
+                {'success': 1}, persistent=False)
 
     @no_duplicates
     @patch('schwab.debug.register_redactions', new_callable=Mock)
@@ -167,12 +208,10 @@ class RegisterRedactionsTest(unittest.TestCase):
 
 class EnableDebugLoggingTest(unittest.TestCase):
 
-    @patch('logging.Logger.addHandler')
-    def test_enable_doesnt_throw_exceptions(self, _):
-        try:
-            schwab.debug.enable_bug_report_logging()
-        except AttributeError:
-            self.fail("debug.enable_bug_report_logging() raised AttributeError unexpectedly")
+    @patch('schwab.debug._enable_bug_report_logging')
+    def test_enable_doesnt_throw_exceptions(self, enable):
+        schwab.debug.enable_bug_report_logging()
+        enable.assert_called_once_with()
 
     @no_duplicates
     def test_log_writer_is_idempotent(self):
@@ -194,3 +233,40 @@ class EnableDebugLoggingTest(unittest.TestCase):
                 output=output, loggers=[])
         output.close()
         write_logs()
+
+    @no_duplicates
+    def test_log_buffer_is_bounded(self):
+        output = io.StringIO()
+        logger = logging.getLogger('bounded-log-test')
+        write_logs = schwab.debug._enable_bug_report_logging(
+                output=output, loggers=[logger],
+                max_log_messages=2, max_log_chars=10_000)
+        logger.info('first message')
+        logger.info('second message')
+        logger.info('third message')
+
+        write_logs()
+
+        logs = output.getvalue()
+        self.assertNotIn('first message', logs)
+        self.assertIn('second message', logs)
+        self.assertIn('third message', logs)
+        self.assertIn('1 older log messages omitted', logs)
+
+    @no_duplicates
+    def test_writer_clears_transient_redactions_and_restores_level(self):
+        output = io.StringIO()
+        logger = logging.getLogger('cleanup-log-test')
+        original_level = logger.level
+        redactor = schwab.debug.LogRedactor()
+        redactor.register('api-key', 'API_KEY')
+        redactor.register('order-id', 'orderId', persistent=False)
+
+        with patch.object(schwab, 'LOG_REDACTOR', redactor):
+            write_logs = schwab.debug._enable_bug_report_logging(
+                    output=output, loggers=[logger])
+            self.assertEqual(logging.DEBUG, logger.level)
+            write_logs()
+
+        self.assertEqual(original_level, logger.level)
+        self.assertEqual({'api-key'}, set(redactor.redacted_strings))

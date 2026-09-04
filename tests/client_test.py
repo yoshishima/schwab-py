@@ -4,6 +4,7 @@ import logging
 import os
 import pytest
 import pytz
+import schwab
 import unittest
 from unittest.mock import ANY, MagicMock, Mock, patch, PropertyMock
 
@@ -114,11 +115,41 @@ class _TestClient:
         response.json.return_value = {'accountNumber': '123456789'}
         self.mock_session.get.return_value = response
 
-        self.client.get_account_numbers()
+        with patch('schwab.debug._BUG_REPORT_LOGGING_ACTIVE', 1):
+            self.client.get_account_numbers()
 
         response.json.assert_called_once_with()
         register_redactions.assert_called_once_with(
-                {'accountNumber': '123456789'})
+                {'accountNumber': '123456789'}, persistent=False)
+
+
+    def test_response_not_parsed_for_regular_debug_logging(self):
+        response = MagicMock()
+        response_text = PropertyMock(return_value='response body')
+        type(response).text = response_text
+        self.mock_session.get.return_value = response
+
+        with patch('schwab.debug._BUG_REPORT_LOGGING_ACTIVE', 0):
+            self.client.get_account_numbers()
+
+        response.json.assert_not_called()
+        response_text.assert_called_once_with()
+
+
+    def test_response_omitted_when_redaction_limit_reached(self):
+        response = MagicMock()
+        response_text = PropertyMock(return_value='sensitive response body')
+        type(response).text = response_text
+        response.json.return_value = {'orderId': '123'}
+        self.mock_session.get.return_value = response
+
+        limited_redactor = schwab.debug.LogRedactor(max_transient_entries=0)
+        with patch.object(schwab, 'LOG_REDACTOR', limited_redactor), \
+                patch('schwab.debug._BUG_REPORT_LOGGING_ACTIVE', 1):
+            self.client.get_account_numbers()
+
+        response.json.assert_called_once_with()
+        response_text.assert_not_called()
 
 
     def test_response_body_not_inspected_when_debug_disabled(self):

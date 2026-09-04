@@ -64,9 +64,13 @@ class BaseClient(EnumEnforcer):
         if not self.logger.isEnabledFor(logging.DEBUG):
             return
 
-        register_redactions_from_response(resp)
+        redaction_status = register_redactions_from_response(resp)
+        if redaction_status is False:
+            response_text = '<response omitted: redaction limit reached>'
+        else:
+            response_text = resp.text
         self.logger.debug('Req %s: response: %s, content=%s',
-            req_num, resp.status_code, resp.text)
+            req_num, resp.status_code, response_text)
 
     def _req_num(self):
         self.request_number += 1
