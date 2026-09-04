@@ -78,6 +78,13 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, 'StreamJsonDecoder'):
             self.client.set_json_decoder(object())
 
+    @no_duplicates
+    def test_account_id_is_deprecated(self):
+        with self.assertWarnsRegex(DeprecationWarning, 'has no effect'):
+            client = StreamClient(self.http_client, account_id=ACCOUNT_ID)
+
+        self.assertFalse(hasattr(client, '_account'))
+
     def request_from_socket_mock(self, socket):
         return json.loads(
             socket.send.call_args_list[0][0][0])['requests'][0]

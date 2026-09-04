@@ -8,6 +8,7 @@ import httpx2 as httpx
 import inspect
 import json
 import logging
+import warnings
 
 from websockets.asyncio import client as ws_client
 
@@ -101,11 +102,18 @@ class StreamClient(EnumEnforcer):
                  enforce_enums=True, ssl_context=None, response_timeout=30.0):
         super().__init__(enforce_enums)
 
+        if account_id is not None:
+            warnings.warn(
+                'account_id is deprecated and has no effect; streamer access '
+                'is determined by Schwab user preferences. Remove this '
+                'argument.',
+                DeprecationWarning,
+                stacklevel=2)
+
         self._ssl_context = ssl_context
         self._client = client
 
         # Set by the login() function
-        self._account = None
         self._stream_correl_id = None
         self._stream_customer_id = None
         self._stream_channel = None
@@ -666,8 +674,8 @@ class StreamClient(EnumEnforcer):
         `Official documentation <https://developer.tdameritrade.com/content/
         streaming-data#_Toc504640580>`__
 
-        Subscribe to account activity for the account id associated with this
-        streaming client. See :class:`AccountActivityFields` for more info.
+        Subscribe to account activity associated with this streaming
+        connection. See :class:`AccountActivityFields` for more info.
         '''
         await self._service_op(
             [self._stream_correl_id], 'ACCT_ACTIVITY', 'SUBS',
@@ -678,8 +686,8 @@ class StreamClient(EnumEnforcer):
         `Official documentation <https://developer.tdameritrade.com/content/
         streaming-data#_Toc504640580>`__
 
-        Un-Subscribe to account activity for the account id associated with this
-        streaming client. See :class:`AccountActivityFields` for more info.
+        Un-Subscribe from account activity associated with this streaming
+        connection. See :class:`AccountActivityFields` for more info.
         '''
         await self._service_op([self._stream_correl_id], 'ACCT_ACTIVITY', 'UNSUBS')
 

@@ -32,7 +32,7 @@ run this outside regular trading hours you may not see anything):
           app_secret='YOUR_APP_SECRET',
           callback_url='https://127.0.0.1',
           token_path='/path/to/token.json')
-  stream_client = StreamClient(client, account_id=1234567890)
+  stream_client = StreamClient(client)
 
   async def read_stream():
       await stream_client.login()
@@ -49,6 +49,11 @@ run this outside regular trading hours you may not see anything):
           await stream_client.handle_message()
 
   asyncio.run(read_stream())
+
+The streaming connection is configured from the ``streamerInfo`` returned by
+Schwab's user-preferences endpoint; it cannot be scoped by passing an account
+number. The legacy ``account_id`` constructor argument is deprecated and has no
+effect.
 
 
 ++++++++++++

@@ -21,8 +21,6 @@ class MyStreamConsumer:
         """
         self.api_key = api_key
         self.client_secret = client_secret
-        self.account_id = None
-        self.account_hash = None
         self.callback_url = callback_url
         self.token_path = token_path
 
@@ -49,13 +47,7 @@ class MyStreamConsumer:
             api_key=self.api_key,
             app_secret=self.client_secret)
 
-        account_info = self.schwab_client.get_account_numbers().json()
-
-        self.account_id = int(account_info[0]['accountNumber'])
-        self.account_hash = account_info[0]['hashValue']
-
-        self.stream_client = StreamClient(
-            self.schwab_client, account_id=self.account_id)
+        self.stream_client = StreamClient(self.schwab_client)
 
         # The streaming client wants you to add a handler for every service type
         self.stream_client.add_level_one_equity_handler(
