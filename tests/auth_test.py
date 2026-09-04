@@ -296,6 +296,80 @@ class ClientFromLoginFlowTest(unittest.TestCase):
                     callback_timeout=0)
 
 
+class CallbackServerReadinessTest(unittest.TestCase):
+
+    def setUp(self):
+        self.server = MagicMock()
+        self.server.exitcode = None
+        self.callback_port = 6969
+        self.readiness_token = 'unique-readiness-token'
+
+    @no_duplicates
+    @patch('schwab.auth.httpx.get')
+    def test_accepts_expected_server_response(self, http_get):
+        http_get.return_value.status_code = 200
+        http_get.return_value.text = self.readiness_token
+
+        auth._wait_for_callback_server(
+                self.server, self.callback_port, self.readiness_token)
+
+    @no_duplicates
+    @patch('schwab.auth.httpx.get')
+    def test_rejects_non_200_response(self, http_get):
+        http_get.return_value.status_code = 503
+        http_get.return_value.text = self.readiness_token
+
+        with self.assertRaisesRegex(
+                auth.RedirectServerIdentityError, 'unexpected HTTPS server'):
+            auth._wait_for_callback_server(
+                    self.server, self.callback_port, self.readiness_token)
+
+    @no_duplicates
+    @patch('schwab.auth.httpx.get')
+    def test_rejects_wrong_readiness_token(self, http_get):
+        http_get.return_value.status_code = 200
+        http_get.return_value.text = 'response-from-another-server'
+
+        with self.assertRaisesRegex(
+                auth.RedirectServerIdentityError, 'unexpected HTTPS server'):
+            auth._wait_for_callback_server(
+                    self.server, self.callback_port, self.readiness_token)
+
+    @no_duplicates
+    @patch('schwab.auth.time.sleep')
+    @patch('schwab.auth.httpx.get')
+    def test_retries_connection_and_response_timeouts(
+            self, http_get, sleep):
+        successful_response = MagicMock()
+        successful_response.status_code = 200
+        successful_response.text = self.readiness_token
+
+        for timeout_type in (
+                auth.httpx.ConnectTimeout, auth.httpx.ReadTimeout):
+            with self.subTest(timeout_type=timeout_type):
+                http_get.side_effect = [
+                    timeout_type('server not ready'), successful_response]
+
+                auth._wait_for_callback_server(
+                        self.server, self.callback_port,
+                        self.readiness_token)
+
+                self.assertEqual(http_get.call_count, 2)
+                sleep.assert_called_once_with(
+                        auth._CALLBACK_SERVER_POLL_INTERVAL)
+                http_get.reset_mock()
+                sleep.reset_mock()
+
+    @no_duplicates
+    @patch('schwab.auth.time.monotonic', side_effect=[0.0, 31.0])
+    def test_startup_wait_has_deadline(self, monotonic):
+        with self.assertRaisesRegex(
+                auth.RedirectServerTimeoutError,
+                'Timed out waiting for the local OAuth callback server'):
+            auth._wait_for_callback_server(
+                    self.server, self.callback_port, self.readiness_token)
+
+
 class ClientFromTokenFileTest(unittest.TestCase):
 
     def setUp(self):
@@ -362,6 +436,32 @@ class ClientFromTokenFileTest(unittest.TestCase):
 
         if os.name == 'posix':
             self.assertEqual(os.stat(self.token_path).st_mode & 0o777, 0o600)
+
+    @no_duplicates
+    @unittest.skipUnless(os.name == 'posix', 'requires POSIX symlinks')
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    def test_update_token_preserves_symlink(
+            self, async_session, sync_session, client):
+        target_path = os.path.join(self.tmp_dir.name, 'shared-token.json')
+        with open(target_path, 'w') as f:
+            json.dump(self.token, f)
+        os.symlink(target_path, self.token_path)
+
+        auth.client_from_token_file(
+                self.token_path, API_KEY, APP_SECRET)
+        update_token = sync_session.mock_calls[0][2]['update_token']
+
+        updated_token = {'updated': 'token'}
+        update_token(updated_token)
+
+        self.assertTrue(os.path.islink(self.token_path))
+        with open(target_path, 'r') as f:
+            self.assertEqual(json.load(f), {
+                'token': updated_token,
+                'creation_timestamp': TOKEN_CREATION_TIMESTAMP
+            })
 
     @no_duplicates
     @patch('schwab.auth.Client')

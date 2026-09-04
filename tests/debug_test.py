@@ -235,6 +235,16 @@ class EnableDebugLoggingTest(unittest.TestCase):
         write_logs()
 
     @no_duplicates
+    def test_log_writer_tolerates_broken_pipe(self):
+        class BrokenPipeOutput(io.StringIO):
+            def write(self, value):
+                raise BrokenPipeError('reader closed')
+
+        write_logs = schwab.debug._enable_bug_report_logging(
+                output=BrokenPipeOutput(), loggers=[])
+        write_logs()
+
+    @no_duplicates
     def test_log_buffer_is_bounded(self):
         output = io.StringIO()
         logger = logging.getLogger('bounded-log-test')

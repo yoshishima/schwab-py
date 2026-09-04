@@ -85,6 +85,13 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         self.assertFalse(hasattr(client, '_account'))
 
+    @no_duplicates
+    def test_field_mapping_uses_canonical_name_for_aliases(self):
+        fields = StreamClient.LevelOneOptionFields
+
+        self.assertIs(fields.STRIKE_TYPE, fields.STRIKE_PRICE)
+        self.assertEqual(fields.key_mapping()['20'], 'STRIKE_PRICE')
+
     def request_from_socket_mock(self, socket):
         return json.loads(
             socket.send.call_args_list[0][0][0])['requests'][0]
@@ -2074,7 +2081,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                     "ASK_SIZE": 20,
                     "LAST_SIZE": 1,
                     "NET_CHANGE": 1.1196,
-                    "STRIKE_TYPE": 70,
+                    "STRIKE_PRICE": 70,
                     "CONTRACT_TYPE": "C",
                     "UNDERLYING": "GOOG",
                     "EXPIRATION_MONTH": 5,
@@ -2135,7 +2142,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                     "ASK_SIZE": 51,
                     "LAST_SIZE": 1,
                     "NET_CHANGE": -1.03,
-                    "STRIKE_TYPE": 160,
+                    "STRIKE_PRICE": 160,
                     "CONTRACT_TYPE": "C",
                     "UNDERLYING": "MSFT",
                     "EXPIRATION_MONTH": 5,

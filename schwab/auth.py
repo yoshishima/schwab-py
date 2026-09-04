@@ -9,6 +9,7 @@ import multiprocess
 import os
 import psutil
 import queue
+import secrets
 import stat
 import sys
 import tempfile
@@ -23,6 +24,9 @@ from schwab.debug import register_redactions
 
 
 TOKEN_ENDPOINT = 'https://api.schwabapi.com/v1/oauth/token'
+_CALLBACK_SERVER_STARTUP_TIMEOUT = 30.0
+_CALLBACK_SERVER_PROBE_TIMEOUT = 1.0
+_CALLBACK_SERVER_POLL_INTERVAL = 0.1
 
 
 def get_logger():
@@ -33,7 +37,11 @@ def __make_update_token_func(token_path):
     def update_token(t, *args, **kwargs):
         get_logger().info('Updating token to file %s', token_path)
 
-        token_dir = os.path.dirname(os.path.abspath(token_path))
+        # Resolve the final path before the atomic replacement. Replacing the
+        # path passed by the caller directly would replace a symlink itself and
+        # leave its target holding a stale token.
+        resolved_token_path = os.path.realpath(os.path.abspath(token_path))
+        token_dir = os.path.dirname(resolved_token_path)
         fd, temporary_path = tempfile.mkstemp(
                 dir=token_dir, prefix='.schwab-token-', text=True)
         try:
@@ -44,8 +52,9 @@ def __make_update_token_func(token_path):
                 json.dump(t, f)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(temporary_path, token_path)
-            os.chmod(token_path, stat.S_IRUSR | stat.S_IWUSR)
+            os.replace(temporary_path, resolved_token_path)
+            os.chmod(
+                    resolved_token_path, stat.S_IRUSR | stat.S_IWUSR)
         except Exception:
             if fd is not None:
                 os.close(fd)
@@ -146,7 +155,7 @@ class TokenMetadata:
 
 # This runs in a separate process and is invisible to coverage
 def __run_client_from_login_flow_server(
-        q, callback_port, callback_path):  # pragma: no cover
+        q, callback_port, callback_path, readiness_token):  # pragma: no cover
     '''Helper server for intercepting redirects to the callback URL. See
     client_from_login_flow for details.'''
 
@@ -161,7 +170,7 @@ def __run_client_from_login_flow_server(
 
     @app.route('/schwab-py-internal/status')
     def status():
-        return 'running'
+        return readiness_token
 
     if callback_port == 443:
         return
@@ -181,8 +190,62 @@ def __run_client_from_login_flow_server(
 class RedirectTimeoutError(Exception):
     pass
 
-class RedirectServerExitedError(Exception):
+
+class RedirectServerError(Exception):
+    '''Base error raised while starting the local OAuth callback server.'''
+
+
+class RedirectServerExitedError(RedirectServerError):
     pass
+
+
+class RedirectServerTimeoutError(RedirectServerError):
+    '''Raised when the local OAuth callback server does not become ready.'''
+
+
+class RedirectServerIdentityError(RedirectServerError):
+    '''Raised when another process answers on the OAuth callback port.'''
+
+
+def _wait_for_callback_server(server, callback_port, readiness_token):
+    deadline = time.monotonic() + _CALLBACK_SERVER_STARTUP_TIMEOUT
+
+    while True:
+        if server.exitcode is not None:
+            raise RedirectServerExitedError(
+                    'Redirect server exited. Are you attempting to use a '
+                    'callback URL without a port number specified?')
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RedirectServerTimeoutError(
+                    'Timed out waiting for the local OAuth callback server '
+                    'to start on port {}.'.format(callback_port))
+
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                        'ignore',
+                        category=urllib3.exceptions.InsecureRequestWarning)
+
+                response = httpx.get(
+                        'https://127.0.0.1:{}/schwab-py-internal/status'.format(
+                            callback_port),
+                        verify=False,
+                        timeout=min(_CALLBACK_SERVER_PROBE_TIMEOUT, remaining))
+        except (httpx.ConnectError, httpx.TimeoutException):
+            time.sleep(_CALLBACK_SERVER_POLL_INTERVAL)
+            continue
+
+        if (response.status_code != 200
+                or not secrets.compare_digest(
+                    response.text, readiness_token)):
+            raise RedirectServerIdentityError(
+                    'An unexpected HTTPS server answered on callback port {}. '
+                    'Choose an unused callback port and try again.'.format(
+                        callback_port))
+
+        return
 
 # Capture the real time.time so that we can use it in server initialization 
 # while simultaneously mocking it in testing
@@ -280,10 +343,12 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     callback_path = parsed.path if parsed.path else '/'
 
     output_queue = multiprocess.Queue()
+    readiness_token = secrets.token_urlsafe(32)
 
     server = multiprocess.Process(
             target=__run_client_from_login_flow_server,
-            args=(output_queue, callback_port, callback_path))
+            args=(output_queue, callback_port, callback_path,
+                  readiness_token))
 
     # Context manager to kill the server upon completion
     @contextlib.contextmanager
@@ -300,30 +365,8 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
             server.join(timeout=1.0)
 
     with callback_server():
-        # Wait until the server successfully starts
-        while True:
-            # Check if the server is still alive
-            if server.exitcode is not None:
-                # TODO: document this error
-                raise RedirectServerExitedError(
-                        'Redirect server exited. Are you attempting to use a ' +
-                        'callback URL without a port number specified?')
-
-            # Attempt to send a request to the server
-            try:
-                with warnings.catch_warnings():
-                    warnings.filterwarnings(
-                            'ignore',
-                            category=urllib3.exceptions.InsecureRequestWarning)
-
-                    httpx.get(
-                            'https://127.0.0.1:{}/schwab-py-internal/status'.format(
-                                callback_port), verify=False)
-                break
-            except httpx.ConnectError:
-                pass
-
-            time.sleep(0.1)
+        _wait_for_callback_server(
+                server, callback_port, readiness_token)
 
         # Open the browser
         auth_context = get_auth_context(api_key, callback_url)

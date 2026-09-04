@@ -2,7 +2,11 @@ import json
 import unittest
 import sys
 
-from schwab.contrib.orders import construct_repeat_order, code_for_builder
+from schwab.contrib.orders import (
+        UnrepeatableOrderError,
+        code_for_builder,
+        construct_repeat_order,
+)
 from schwab.orders.common import EquityInstruction, OrderType
 from schwab.orders.generic import OrderBuilder
 
@@ -137,6 +141,23 @@ class ConstructRepeatOrderTest(unittest.TestCase):
 
     def test_empty_builder(self):
         self.assertBuilder({}, OrderBuilder())
+
+
+    def test_unknown_response_enum_has_descriptive_error(self):
+        for field_name in ('duration', 'orderType'):
+            historical_order = {
+                'duration': 'DAY',
+                'orderType': 'MARKET',
+                'orderStrategyType': 'SINGLE',
+            }
+            historical_order[field_name] = 'UNKNOWN'
+
+            with self.subTest(field_name=field_name):
+                with self.assertRaises(UnrepeatableOrderError) as error:
+                    construct_repeat_order(historical_order)
+
+                self.assertIn("'UNKNOWN'", str(error.exception))
+                self.assertIn(repr(field_name), str(error.exception))
 
 
     def test_missing_orderStrategyType(self):

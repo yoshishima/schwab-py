@@ -4,6 +4,10 @@ import schwab
 from collections import defaultdict
 
 
+class UnrepeatableOrderError(ValueError):
+    '''Raised when a historical order cannot be converted into a new order.'''
+
+
 def _call_setters_with_values(order, builder):
     '''
     For each field in ``_FIELDS_AND_SETTERS``, if it exists in the order
@@ -16,7 +20,12 @@ def _call_setters_with_values(order, builder):
             continue
 
         if enum_class:
-            value = enum_class[value]
+            try:
+                value = enum_class[value]
+            except (KeyError, TypeError):
+                raise UnrepeatableOrderError(
+                        'cannot repeat order with unsupported value {!r} for '
+                        'field {!r}'.format(value, field_name)) from None
 
         setter = getattr(builder, setter_name)
         setter(value)

@@ -264,6 +264,10 @@ def _enable_bug_report_logging(
             for msg in handler.messages:
                 msg = schwab.LOG_REDACTOR.redact(msg)
                 print(msg, file=output)
+        except BrokenPipeError:
+            # Bug-report output is best-effort, especially from an atexit
+            # callback whose output may be connected to a closed pipe.
+            pass
         finally:
             global _BUG_REPORT_LOGGING_ACTIVE
             _BUG_REPORT_LOGGING_ACTIVE -= 1
