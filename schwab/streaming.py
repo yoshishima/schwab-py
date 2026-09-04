@@ -52,9 +52,10 @@ class _BaseFieldEnum(Enum):
     @classmethod
     def relabel_message(cls, old_msg, new_msg):
         # Make a copy of the items so we can modify the dict during iteration
-        for old_key, value in list(old_msg.items()):
-            if old_key in cls.key_mapping():
-                new_key = cls.key_mapping()[old_key]
+        key_mapping = cls.key_mapping()
+        for old_key in list(old_msg):
+            if old_key in key_mapping:
+                new_key = key_mapping[old_key]
                 new_msg[new_key] = new_msg.pop(old_key)
 
 

@@ -1,17 +1,13 @@
 '''Defines the basic client and methods for creating one. This client is
-completely unopinionated, and provides an easy-to-use wrapper around the TD
-Ameritrade HTTP API.'''
+completely unopinionated, and provides an easy-to-use wrapper around the Schwab
+HTTP API.'''
 
 from abc import ABC, abstractmethod
 from enum import Enum
 
 import datetime
-import json
 import logging
-import pickle
 import schwab
-import time
-import warnings
 
 from schwab.orders.generic import OrderBuilder
 
@@ -23,10 +19,34 @@ def get_logger():
     return logging.getLogger(__name__)
 
 
+class _ContextualValueEnum(Enum):
+    '''Enum whose distinct members can share the same API value.'''
+
+    def __new__(cls, context, api_value):
+        obj = object.__new__(cls)
+        obj._value_ = (context, api_value)
+        obj._api_value = api_value
+        return obj
+
+    @property
+    def value(self):
+        return self._api_value
+
+    @classmethod
+    def _missing_(cls, value):
+        # Preserve construction from the numeric API value. If multiple
+        # members share that value, return the first one as Enum did when the
+        # later declarations were aliases.
+        for member in cls:
+            if member.value == value:
+                return member
+        return None
+
+
 ##########################################################################
 # Client
 
-class BaseClient(EnumEnforcer):
+class BaseClient(EnumEnforcer, ABC):
     # This docstring will appears as documentation for __init__
     '''A basic, completely unopinionated client. This client provides the most
     direct access to the API possible. All methods return the raw response which
@@ -53,6 +73,22 @@ class BaseClient(EnumEnforcer):
 
         # Set the default timeout configuration
         self.set_timeout(30.0)
+
+    @abstractmethod
+    def _get_request(self, path, params):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _post_request(self, path, data):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _put_request(self, path, data):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _delete_request(self, path):
+        raise NotImplementedError
 
     # XXX: This class's tests perform monkey patching to inject synthetic values
     # of utcnow(). To avoid being confused by this, capture these values here so
@@ -688,8 +724,7 @@ class BaseClient(EnumEnforcer):
     # Option Expiration Chain
 
     def get_option_expiration_chain(self, symbol):
-        '''Preferences for the logged in account, including all linked
-        accounts.'''
+        '''Get the available option expiration dates for a symbol.'''
         path = '/marketdata/v1/expirationchain'
         return self._get_request(path, {'symbol': symbol})
 
@@ -703,32 +738,32 @@ class BaseClient(EnumEnforcer):
             YEAR = 'year'
             YEAR_TO_DATE = 'ytd'
 
-        class Period(Enum):
+        class Period(_ContextualValueEnum):
             # Daily
-            ONE_DAY = 1
-            TWO_DAYS = 2
-            THREE_DAYS = 3
-            FOUR_DAYS = 4
-            FIVE_DAYS = 5
-            TEN_DAYS = 10
+            ONE_DAY = 'day', 1
+            TWO_DAYS = 'day', 2
+            THREE_DAYS = 'day', 3
+            FOUR_DAYS = 'day', 4
+            FIVE_DAYS = 'day', 5
+            TEN_DAYS = 'day', 10
 
             # Monthly
-            ONE_MONTH = 1
-            TWO_MONTHS = 2
-            THREE_MONTHS = 3
-            SIX_MONTHS = 6
+            ONE_MONTH = 'month', 1
+            TWO_MONTHS = 'month', 2
+            THREE_MONTHS = 'month', 3
+            SIX_MONTHS = 'month', 6
 
             # Year
-            ONE_YEAR = 1
-            TWO_YEARS = 2
-            THREE_YEARS = 3
-            FIVE_YEARS = 5
-            TEN_YEARS = 10
-            FIFTEEN_YEARS = 15
-            TWENTY_YEARS = 20
+            ONE_YEAR = 'year', 1
+            TWO_YEARS = 'year', 2
+            THREE_YEARS = 'year', 3
+            FIVE_YEARS = 'year', 5
+            TEN_YEARS = 'year', 10
+            FIFTEEN_YEARS = 'year', 15
+            TWENTY_YEARS = 'year', 20
 
             # Year to date
-            YEAR_TO_DATE = 1
+            YEAR_TO_DATE = 'ytd', 1
 
         class FrequencyType(Enum):
             MINUTE = 'minute'
@@ -736,18 +771,18 @@ class BaseClient(EnumEnforcer):
             WEEKLY = 'weekly'
             MONTHLY = 'monthly'
 
-        class Frequency(Enum):
+        class Frequency(_ContextualValueEnum):
             # Minute
-            EVERY_MINUTE = 1
-            EVERY_FIVE_MINUTES = 5
-            EVERY_TEN_MINUTES = 10
-            EVERY_FIFTEEN_MINUTES = 15
-            EVERY_THIRTY_MINUTES = 30
+            EVERY_MINUTE = 'minute', 1
+            EVERY_FIVE_MINUTES = 'minute', 5
+            EVERY_TEN_MINUTES = 'minute', 10
+            EVERY_FIFTEEN_MINUTES = 'minute', 15
+            EVERY_THIRTY_MINUTES = 'minute', 30
 
             # Other frequencies
-            DAILY = 1
-            WEEKLY = 1
-            MONTHLY = 1
+            DAILY = 'daily', 1
+            WEEKLY = 'weekly', 1
+            MONTHLY = 'monthly', 1
 
     def get_price_history(
             self,
@@ -964,7 +999,7 @@ class BaseClient(EnumEnforcer):
                 period_type=self.PriceHistory.PeriodType.YEAR,
                 period=self.PriceHistory.Period.TWENTY_YEARS,
                 frequency_type=self.PriceHistory.FrequencyType.DAILY,
-                frequency=self.PriceHistory.Frequency.EVERY_MINUTE,
+                frequency=self.PriceHistory.Frequency.DAILY,
                 start_datetime=start_datetime,
                 end_datetime=end_datetime,
                 need_extended_hours_data=need_extended_hours_data, 
@@ -989,7 +1024,7 @@ class BaseClient(EnumEnforcer):
                 period_type=self.PriceHistory.PeriodType.YEAR,
                 period=self.PriceHistory.Period.TWENTY_YEARS,
                 frequency_type=self.PriceHistory.FrequencyType.WEEKLY,
-                frequency=self.PriceHistory.Frequency.EVERY_MINUTE,
+                frequency=self.PriceHistory.Frequency.WEEKLY,
                 start_datetime=start_datetime,
                 end_datetime=end_datetime,
                 need_extended_hours_data=need_extended_hours_data, 

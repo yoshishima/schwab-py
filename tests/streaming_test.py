@@ -5888,7 +5888,6 @@ class StreamClientTest(IsolatedAsyncioTestCase):
     ###########################################################################
     # Private member _service_op
     #
-    # Note: https://developer.schwabmeritrade.com/content/streaming-data#_Toc504640564
     # parameters are optional and in the case of UNSUBS commands,
     # fields should not be required since unsubscribing from a service
     # will return no data on the service or symbol

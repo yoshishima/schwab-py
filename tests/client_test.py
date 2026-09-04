@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import ANY, MagicMock, Mock, patch, PropertyMock
 
 from schwab.client import AsyncClient, Client
+from schwab.client.base import BaseClient
 from schwab.orders.generic import OrderBuilder
 
 from .utils import AsyncMagicMock, ResyncProxy, no_duplicates
@@ -61,6 +62,13 @@ EARLIER_ISO = '2001-01-02T03:04:05-0456'
 EARLIER_MILLIS = 978422405000
 EARLIER_DATE_STR = '2001-01-02'
 
+
+class BaseClientTest(unittest.TestCase):
+    def test_cannot_instantiate_base_client(self):
+        with self.assertRaisesRegex(TypeError, 'abstract method'):
+            BaseClient(API_KEY, MagicMock())
+
+
 class _TestClient:
     """
     Test suite used for both Client and AsyncClient
@@ -90,6 +98,40 @@ class _TestClient:
 
 
     # Generic functionality
+
+
+    def test_price_history_period_members_are_distinct(self):
+        period = self.client_class.PriceHistory.Period
+        one_value_members = (
+            period.ONE_DAY,
+            period.ONE_MONTH,
+            period.ONE_YEAR,
+            period.YEAR_TO_DATE,
+        )
+
+        self.assertEqual(
+            ['ONE_DAY', 'ONE_MONTH', 'ONE_YEAR', 'YEAR_TO_DATE'],
+            [member.name for member in one_value_members])
+        self.assertEqual([1, 1, 1, 1],
+                         [member.value for member in one_value_members])
+        self.assertEqual(4, len(set(one_value_members)))
+
+
+    def test_price_history_frequency_members_are_distinct(self):
+        frequency = self.client_class.PriceHistory.Frequency
+        one_value_members = (
+            frequency.EVERY_MINUTE,
+            frequency.DAILY,
+            frequency.WEEKLY,
+            frequency.MONTHLY,
+        )
+
+        self.assertEqual(
+            ['EVERY_MINUTE', 'DAILY', 'WEEKLY', 'MONTHLY'],
+            [member.name for member in one_value_members])
+        self.assertEqual([1, 1, 1, 1],
+                         [member.value for member in one_value_members])
+        self.assertEqual(4, len(set(one_value_members)))
 
 
     def test_set_timeout(self):
@@ -1993,7 +2035,7 @@ class _TestClient:
                 # TWENTY_YEARS
                 'period': 20,
                 'frequencyType': 'weekly',
-                # DAILY
+                # WEEKLY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
                 'endDate': NOW_TIMESTAMP_MILLIS,
@@ -2013,7 +2055,7 @@ class _TestClient:
                 # TWENTY_YEARS
                 'period': 20,
                 'frequencyType': 'weekly',
-                # DAILY
+                # WEEKLY
                 'frequency': 1,
                 'startDate': EARLIER_MILLIS,
                 'endDate': NOW_TIMESTAMP_MILLIS,
@@ -2033,7 +2075,7 @@ class _TestClient:
                 # TWENTY_YEARS
                 'period': 20,
                 'frequencyType': 'weekly',
-                # DAILY
+                # WEEKLY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
                 'endDate': EARLIER_MILLIS,
@@ -2053,7 +2095,7 @@ class _TestClient:
                 # TWENTY_YEARS
                 'period': 20,
                 'frequencyType': 'weekly',
-                # DAILY
+                # WEEKLY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
                 'endDate': NOW_TIMESTAMP_MILLIS,
@@ -2073,7 +2115,7 @@ class _TestClient:
                 # TWENTY_YEARS
                 'period': 20,
                 'frequencyType': 'weekly',
-                # DAILY
+                # WEEKLY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
                 'endDate': NOW_TIMESTAMP_MILLIS,
@@ -2093,7 +2135,7 @@ class _TestClient:
                 # TWENTY_YEARS
                 'period': 20,
                 'frequencyType': 'weekly',
-                # DAILY
+                # WEEKLY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
                 'endDate': NOW_TIMESTAMP_MILLIS,
@@ -2113,7 +2155,7 @@ class _TestClient:
                 # TWENTY_YEARS
                 'period': 20,
                 'frequencyType': 'weekly',
-                # DAILY
+                # WEEKLY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
                 'endDate': NOW_TIMESTAMP_MILLIS,

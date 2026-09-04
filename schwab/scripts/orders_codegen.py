@@ -79,7 +79,7 @@ def latest_order_main(sys_args):
 
     # Construct and emit order code
     if orders:
-        order = sorted(orders, key=lambda o: -o['orderId'])[0]
+        order = max(orders, key=lambda o: o['orderId'])
 
         # XXX: If necessary, warn about the jank around destinations
         emit_destination_warning_newline = False

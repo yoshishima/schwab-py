@@ -39,7 +39,6 @@ setuptools.setup(
         'httpx2>=2.12.0',
         'multiprocess>=0.70.19',
         'psutil>=7.2.2',
-        'python-dateutil>=2.9.0.post0',
         'urllib3>=2.7.0',
         'websockets>=17.1'
     ],

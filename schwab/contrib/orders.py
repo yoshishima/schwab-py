@@ -1,19 +1,12 @@
 import autopep8
 import schwab
 
-from schwab.orders.generic import OrderBuilder
-from schwab.orders.common import (
-        EquityInstrument,
-        OptionInstrument,
-        OrderStrategyType,
-)
-
 from collections import defaultdict
 
 
 def _call_setters_with_values(order, builder):
     '''
-    For each field in fields_and_setters, if it exists as a key in the order
+    For each field in ``_FIELDS_AND_SETTERS``, if it exists in the order
     object, pass its value to the appropriate setter on the order builder.
     '''
     for field_name, setter_name, enum_class in _FIELDS_AND_SETTERS:
