@@ -350,21 +350,33 @@ class StreamClient(EnumEnforcer):
 
                     msg = await self._receive()
 
-                    if 'response' in msg and self._response_waiters:
+                    if 'response' in msg:
                         response_request_id = int(
                                 msg['response'][0]['requestid'])
                         waiter = self._response_waiters.pop(
                                 response_request_id, None)
 
-                        # Preserve the historical behavior for malformed
-                        # response IDs: the sole request waiter receives the
-                        # response and raises UnexpectedResponse during
-                        # validation.
-                        if waiter is None and len(self._response_waiters) == 1:
-                            _, waiter = self._response_waiters.popitem()
-
                         if waiter is not None and not waiter.done():
                             waiter.set_result(msg)
+                        elif response_request_id < self._request_id:
+                            # This request was issued, but its waiter has
+                            # already completed, timed out, or been cancelled.
+                            # A late acknowledgement must not be mistaken for
+                            # a stream message or a response to a newer request.
+                            self.logger.warning(
+                                    'Ignoring late response for request %s: '
+                                    '%s',
+                                    response_request_id,
+                                    LazyLog(lambda msg=msg: json.dumps(
+                                        msg, indent=4)))
+                        # Preserve the historical behavior for malformed or
+                        # future response IDs: the sole request waiter receives
+                        # the response and raises UnexpectedResponse during
+                        # validation.
+                        elif len(self._response_waiters) == 1:
+                            _, waiter = self._response_waiters.popitem()
+                            if not waiter.done():
+                                waiter.set_result(msg)
                         elif not self._deliver_message(msg):
                             deferred_messages.append(msg)
                     elif not self._deliver_message(msg):
@@ -451,22 +463,35 @@ class StreamClient(EnumEnforcer):
             return
         exception = task.exception()
         if exception is not None:
-            self.logger.error(
-                    'Asynchronous stream handler failed',
-                    exc_info=(type(exception), exception,
-                              exception.__traceback__))
+            self._log_handler_exception(
+                    'Asynchronous stream handler failed', exception)
+
+    def _log_handler_exception(self, message, exception):
+        self.logger.error(
+                message,
+                exc_info=(type(exception), exception,
+                          exception.__traceback__))
 
     def _dispatch_handlers(self, service, message, *, label_message=False):
         handlers = self._handlers[service]
         if label_message and handlers:
-            message = handlers[0].label_message(message)
+            try:
+                message = handlers[0].label_message(message)
+            except Exception as exception:
+                self._log_handler_exception(
+                        'Stream message relabeling failed', exception)
+                return
 
         for handler in handlers:
-            result = handler(message)
-            if inspect.isawaitable(result):
-                task = asyncio.create_task(result)
-                self._handler_tasks.add(task)
-                task.add_done_callback(self._handler_task_done)
+            try:
+                result = handler(message)
+                if inspect.isawaitable(result):
+                    task = asyncio.create_task(result)
+                    self._handler_tasks.add(task)
+                    task.add_done_callback(self._handler_task_done)
+            except Exception as exception:
+                self._log_handler_exception(
+                        'Synchronous stream handler failed', exception)
 
     async def handle_message(self):
         loop = asyncio.get_running_loop()
@@ -517,8 +542,13 @@ class StreamClient(EnumEnforcer):
             for d in msg['notify']:
                 if 'heartbeat' in d:
                     pass
-                else:
+                elif 'service' in d:
                     self._dispatch_handlers(d['service'], d)
+                else:
+                    self.logger.warning(
+                            'Ignoring stream notification without a service: '
+                            '%s',
+                            LazyLog(lambda d=d: json.dumps(d, indent=4)))
 
     ##########################################################################
     # LOGIN

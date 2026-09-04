@@ -145,6 +145,14 @@ class OrderBuilderTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.order_builder.set_quantity(0)
 
+    @no_duplicates
+    def test_quantity_non_finite(self):
+        for quantity in (float('nan'), float('inf'), float('-inf')):
+            with self.subTest(quantity=quantity):
+                with self.assertRaisesRegex(
+                        ValueError, 'quantity must be positive and finite'):
+                    self.order_builder.set_quantity(quantity)
+
     ##########################################################################
     # RequestedDestination
 
@@ -351,6 +359,14 @@ class OrderBuilderTest(unittest.TestCase):
         self.order_builder.clear_stop_price_offset()
         self.assertFalse(has_diff({}, self.order_builder.build()))
 
+    @no_duplicates
+    def test_stop_price_offset_non_finite(self):
+        for offset in (float('nan'), float('inf'), float('-inf')):
+            with self.subTest(offset=offset):
+                with self.assertRaisesRegex(
+                        ValueError, 'stop price offset must be finite'):
+                    self.order_builder.set_stop_price_offset(offset)
+
     ##########################################################################
     # StopType
 
@@ -524,6 +540,15 @@ class OrderBuilderTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.order_builder.set_activation_price(0.0)
 
+    @no_duplicates
+    def test_activation_price_non_finite(self):
+        for price in (float('nan'), float('inf'), float('-inf')):
+            with self.subTest(price=price):
+                with self.assertRaisesRegex(
+                        ValueError,
+                        'activation price must be positive and finite'):
+                    self.order_builder.set_activation_price(price)
+
     ##########################################################################
     # SpecialInstruction
 
@@ -686,6 +711,15 @@ class OrderBuilderTest(unittest.TestCase):
                 EquityInstruction.BUY, 'GOOG', 0)
 
     @no_duplicates
+    def test_add_equity_leg_non_finite_quantity(self):
+        for quantity in (float('nan'), float('inf'), float('-inf')):
+            with self.subTest(quantity=quantity):
+                with self.assertRaisesRegex(
+                        ValueError, 'quantity must be positive and finite'):
+                    self.order_builder.add_equity_leg(
+                        EquityInstruction.BUY, 'GOOG', quantity)
+
+    @no_duplicates
     def test_add_option_leg_success(self):
         self.order_builder.add_option_leg(
             OptionInstruction.BUY_TO_OPEN, 'GOOG31433C1342', 10)
@@ -757,6 +791,16 @@ class OrderBuilderTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.order_builder.add_option_leg(
                 OptionInstruction.BUY_TO_OPEN, 'GOOG31433C1342', 0)
+
+    @no_duplicates
+    def test_add_option_leg_non_finite_quantity(self):
+        for quantity in (float('nan'), float('inf'), float('-inf')):
+            with self.subTest(quantity=quantity):
+                with self.assertRaisesRegex(
+                        ValueError, 'quantity must be positive and finite'):
+                    self.order_builder.add_option_leg(
+                        OptionInstruction.BUY_TO_OPEN,
+                        'GOOG31433C1342', quantity)
 
 
 class OrderBuilderValidationExamplesTest(unittest.TestCase):

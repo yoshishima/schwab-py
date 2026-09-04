@@ -1,3 +1,4 @@
+import math
 import warnings
 
 from decimal import Decimal, ROUND_DOWN
@@ -6,6 +7,14 @@ from schwab.orders import common
 from schwab.utils import EnumEnforcer
 
 import httpx2 as httpx
+
+
+def _is_finite_number(value):
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and (not isinstance(value, float) or math.isfinite(value))
+    )
 
 
 def _build_object(obj):
@@ -176,10 +185,8 @@ class OrderBuilder(EnumEnforcer):
         Exact semantics unknown. See :ref:`undocumented_quantity` for a
         discussion.
         '''
-        if (isinstance(quantity, bool)
-                or not isinstance(quantity, (int, float))
-                or quantity <= 0):
-            raise ValueError('quantity must be positive')
+        if not _is_finite_number(quantity) or quantity <= 0:
+            raise ValueError('quantity must be positive and finite')
         self._quantity = quantity
         return self
 
@@ -294,6 +301,8 @@ class OrderBuilder(EnumEnforcer):
         '''
         Set the stop price offset.
         '''
+        if not _is_finite_number(stop_price_offset):
+            raise ValueError('stop price offset must be finite')
         self._stopPriceOffset = stop_price_offset
         return self
 
@@ -402,8 +411,9 @@ class OrderBuilder(EnumEnforcer):
         '''
         Set the activation price.
         '''
-        if activation_price <= 0.0:
-            raise ValueError('activation price must be positive')
+        if (not _is_finite_number(activation_price)
+                or activation_price <= 0.0):
+            raise ValueError('activation price must be positive and finite')
         self._activationPrice = activation_price
         return self
 
@@ -476,10 +486,8 @@ class OrderBuilder(EnumEnforcer):
     def __add_order_leg(self, instruction, instrument, quantity):
         # instruction is assumed to have been verified
 
-        if (isinstance(quantity, bool)
-                or not isinstance(quantity, (int, float))
-                or quantity <= 0):
-            raise ValueError('quantity must be positive')
+        if not _is_finite_number(quantity) or quantity <= 0:
+            raise ValueError('quantity must be positive and finite')
 
         if self._orderLegCollection is None:
             self._orderLegCollection = []

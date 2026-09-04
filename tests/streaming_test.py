@@ -142,6 +142,13 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         socket.reset_mock()
         return socket
 
+    async def wait_for_response_waiter(self, request_id):
+        async def wait_for_waiter():
+            while request_id not in self.client._response_waiters:
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(wait_for_waiter(), timeout=1.0)
+
     ##########################################################################
     # Login
 
@@ -5713,6 +5720,25 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_notify_without_service_is_logged_and_ignored(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        notification = {
+            'notify': [{
+                'content': {'code': 30, 'msg': 'stop streaming'}
+            }]
+        }
+        socket.recv.side_effect = [json.dumps(notification)]
+
+        with self.assertLogs('schwab.streaming', level='WARNING') as logs:
+            await self.client.handle_message()
+
+        self.assertIn(
+            'Ignoring stream notification without a service',
+            '\n'.join(logs.output))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_handle_message_unexpected_response(self, ws_connect):
         socket = await self.login_and_get_socket(ws_connect)
 
@@ -5769,6 +5795,45 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_sync_handler_exception_does_not_skip_later_handlers(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        stream_item = self.streaming_entry('CHART_EQUITY', 'SUBS')
+        socket.recv.side_effect = [json.dumps(stream_item)]
+
+        failed_handler = Mock(side_effect=RuntimeError('handler bug'))
+        later_handler = Mock()
+        self.client.add_chart_equity_handler(failed_handler)
+        self.client.add_chart_equity_handler(later_handler)
+
+        with self.assertLogs('schwab.streaming', level='ERROR') as logs:
+            await self.client.handle_message()
+
+        failed_handler.assert_called_once_with(stream_item['data'][0])
+        later_handler.assert_called_once_with(stream_item['data'][0])
+        self.assertIn(
+            'Synchronous stream handler failed', '\n'.join(logs.output))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_relabel_exception_is_logged(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        stream_item = self.streaming_entry(
+            'CHART_EQUITY', 'SUBS', [None])
+        socket.recv.side_effect = [json.dumps(stream_item)]
+
+        handler = Mock()
+        self.client.add_chart_equity_handler(handler)
+
+        with self.assertLogs('schwab.streaming', level='ERROR') as logs:
+            await self.client.handle_message()
+
+        handler.assert_not_called()
+        self.assertIn(
+            'Stream message relabeling failed', '\n'.join(logs.output))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_handle_message_reuses_reader_task(self, ws_connect):
         socket = await self.login_and_get_socket(ws_connect)
 
@@ -5808,6 +5873,73 @@ class StreamClientTest(IsolatedAsyncioTestCase):
             await handle_task
 
         self.assertEqual(self.client._overflow_items.pop(), stream_item)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_late_success_response_does_not_interrupt_messages(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        incoming = asyncio.Queue()
+
+        async def receive():
+            return await incoming.get()
+
+        socket.recv.side_effect = receive
+        request_task = asyncio.create_task(
+            self.client.chart_equity_subs(['GOOG']))
+        await self.wait_for_response_waiter(1)
+
+        request_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await request_task
+
+        stream_item = self.streaming_entry('CHART_EQUITY', 'SUBS')
+        handler = Mock()
+        self.client.add_chart_equity_handler(handler)
+        handle_task = asyncio.create_task(self.client.handle_message())
+
+        with self.assertLogs('schwab.streaming', level='WARNING') as logs:
+            await incoming.put(json.dumps(self.success_response(
+                1, 'CHART_EQUITY', 'SUBS')))
+            await incoming.put(json.dumps(stream_item))
+            await asyncio.wait_for(handle_task, timeout=1.0)
+
+        handler.assert_called_once_with(stream_item['data'][0])
+        self.assertIn(
+            'Ignoring late response for request 1', '\n'.join(logs.output))
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_late_response_is_not_sent_to_newer_request(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        incoming = asyncio.Queue()
+
+        async def receive():
+            return await incoming.get()
+
+        socket.recv.side_effect = receive
+        abandoned_task = asyncio.create_task(
+            self.client.chart_equity_subs(['GOOG']))
+        await self.wait_for_response_waiter(1)
+
+        abandoned_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await abandoned_task
+
+        current_task = asyncio.create_task(
+            self.client.chart_equity_add(['MSFT']))
+        await self.wait_for_response_waiter(2)
+
+        with self.assertLogs('schwab.streaming', level='WARNING') as logs:
+            await incoming.put(json.dumps(self.success_response(
+                1, 'CHART_EQUITY', 'SUBS')))
+            await incoming.put(json.dumps(self.success_response(
+                2, 'CHART_EQUITY', 'ADD')))
+            await asyncio.wait_for(current_task, timeout=1.0)
+
+        self.assertIn(
+            'Ignoring late response for request 1', '\n'.join(logs.output))
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
@@ -6093,5 +6225,3 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                 'fields': '1,2,5,14,36'
             }
         })
-
-
