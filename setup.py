@@ -1,6 +1,6 @@
 import setuptools
 
-with open('README.rst', 'r') as f:
+with open('README.md', 'r', encoding='utf-8') as f:
     long_description = f.read()
 
 with open('schwab/version.py', 'r') as f:
@@ -15,7 +15,7 @@ setuptools.setup(
     author_email='bottomless.septic.tank@gmail.com',
     description='Unofficial API wrapper for the Schwab HTTP API',
     long_description=long_description,
-    long_description_content_type='text/x-rst',
+    long_description_content_type='text/markdown',
     url='https://github.com/alexgolec/schwab-py',
     packages=setuptools.find_packages(exclude=('tests', 'tests.*')),
     classifiers=[
@@ -69,4 +69,3 @@ setuptools.setup(
         'bin/schwab-generate-token.py',
     ],
 )
-
