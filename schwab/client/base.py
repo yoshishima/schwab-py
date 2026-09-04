@@ -127,6 +127,12 @@ class BaseClient(EnumEnforcer, ABC):
                     ', '.join(exp_type_names), name, value_type_name)
             raise ValueError(error_str)
 
+    def _validate_bool(self, name, value):
+        if value is not None and type(value) is not bool:
+            raise ValueError(
+                "value of '{}' must be either True or False".format(name))
+        return value
+
     def _format_date_as_iso(self, var_name, dt):
         '''Formats datetime or date objects as yyyy-MM-dd'T'HH:mm:ss.SSSZ'''
         self._assert_type(var_name, dt, [self._DATE, self._DATETIME])
@@ -273,18 +279,20 @@ class BaseClient(EnumEnforcer, ABC):
 
     def _make_order_query(self,
                           *,
+                          default_lookback_days,
                           max_results=None,
                           from_entered_datetime=None,
                           to_entered_datetime=None,
                           status=None):
         status = self.convert_enum(status, self.Order.Status)
 
+        if from_entered_datetime is None or to_entered_datetime is None:
+            now = datetime.datetime.now(datetime.timezone.utc)
         if from_entered_datetime is None:
-            from_entered_datetime = (
-                    datetime.datetime.now(datetime.timezone.utc) -
-                    datetime.timedelta(days=60))
+            from_entered_datetime = now - datetime.timedelta(
+                days=default_lookback_days)
         if to_entered_datetime is None:
-            to_entered_datetime = datetime.datetime.now(datetime.timezone.utc)
+            to_entered_datetime = now
 
         params = {
             'fromEnteredTime': self._format_date_as_iso(
@@ -315,17 +323,17 @@ class BaseClient(EnumEnforcer, ABC):
         :param from_entered_datetime: Specifies that no orders entered before
                                       this time should be returned. Date must
                                       be within one year of today's date.
+                                      Defaults to 365 days ago.
                                       ``toEnteredTime`` must also be set.
         :param to_entered_datetime: Specifies that no orders entered after this
                                     time should be returned. ``fromEnteredTime``
                                     must also be set.
         :param status: Restrict query to orders with this status. See
                        :class:`Order.Status` for options.
-        :param statuses: Restrict query to orders with any of these statuses.
-                         See :class:`Order.Status` for options.
         '''
         path = '/trader/v1/accounts/{}/orders'.format(account_hash)
         return self._get_request(path, self._make_order_query(
+            default_lookback_days=365,
             max_results=max_results,
             from_entered_datetime=from_entered_datetime,
             to_entered_datetime=to_entered_datetime,
@@ -344,6 +352,7 @@ class BaseClient(EnumEnforcer, ABC):
         :param from_entered_datetime: Specifies that no orders entered before
                                       this time should be returned. Date must
                                       be within 60 days from today's date.
+                                      Defaults to 60 days ago.
                                       ``toEnteredTime`` must also be set.
         :param to_entered_datetime: Specifies that no orders entered after this
                                     time should be returned. ``fromEnteredTime``
@@ -353,6 +362,7 @@ class BaseClient(EnumEnforcer, ABC):
         '''
         path = '/trader/v1/orders'
         return self._get_request(path, self._make_order_query(
+            default_lookback_days=60,
             max_results=max_results,
             from_entered_datetime=from_entered_datetime,
             to_entered_datetime=to_entered_datetime,
@@ -518,6 +528,7 @@ class BaseClient(EnumEnforcer, ABC):
         :param symbol: Single symbol to fetch
         :param fields: Fields to request. If unset, return all available data. 
                        i.e. all fields. See :class:`GetQuote.Field` for options.
+        :param indicative: Include indicative quotes for requested ETF symbols.
         '''
         fields = self.convert_enum_iterable(fields, self.Quote.Fields)
         if fields:
@@ -548,10 +559,8 @@ class BaseClient(EnumEnforcer, ABC):
             params['fields'] = ','.join(fields)
 
         if indicative is not None:
-            if type(indicative) is not bool:
-                raise ValueError(
-                        'value of \'indicative\' must be either True or False')
-            params['indicative'] = 'true' if indicative else 'false'
+            params['indicative'] = self._validate_bool(
+                'indicative', indicative)
 
         path = '/marketdata/v1/quotes'
         return self._get_request(path, params)
@@ -678,6 +687,8 @@ class BaseClient(EnumEnforcer, ABC):
         option_type = self.convert_enum(option_type, self.Options.Type)
         exp_month = self.convert_enum(exp_month, self.Options.ExpirationMonth)
         entitlement = self.convert_enum(entitlement, self.Options.Entitlement)
+        include_underlying_quote = self._validate_bool(
+            'include_underlying_quote', include_underlying_quote)
 
         params = {
             'symbol': symbol,
@@ -819,6 +830,10 @@ class BaseClient(EnumEnforcer, ABC):
             frequency_type, self.PriceHistory.FrequencyType)
         frequency = self.convert_enum(
             frequency, self.PriceHistory.Frequency)
+        need_extended_hours_data = self._validate_bool(
+            'need_extended_hours_data', need_extended_hours_data)
+        need_previous_close = self._validate_bool(
+            'need_previous_close', need_previous_close)
 
         params = {
                 'symbol': symbol,
@@ -876,7 +891,6 @@ class BaseClient(EnumEnforcer, ABC):
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.DAY,
-                period=self.PriceHistory.Period.ONE_DAY,
                 frequency_type=self.PriceHistory.FrequencyType.MINUTE,
                 frequency=self.PriceHistory.Frequency.EVERY_MINUTE,
                 start_datetime=start_datetime,
@@ -900,7 +914,6 @@ class BaseClient(EnumEnforcer, ABC):
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.DAY,
-                period=self.PriceHistory.Period.ONE_DAY,
                 frequency_type=self.PriceHistory.FrequencyType.MINUTE,
                 frequency=self.PriceHistory.Frequency.EVERY_FIVE_MINUTES,
                 start_datetime=start_datetime,
@@ -924,7 +937,6 @@ class BaseClient(EnumEnforcer, ABC):
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.DAY,
-                period=self.PriceHistory.Period.ONE_DAY,
                 frequency_type=self.PriceHistory.FrequencyType.MINUTE,
                 frequency=self.PriceHistory.Frequency.EVERY_TEN_MINUTES,
                 start_datetime=start_datetime,
@@ -948,7 +960,6 @@ class BaseClient(EnumEnforcer, ABC):
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.DAY,
-                period=self.PriceHistory.Period.ONE_DAY,
                 frequency_type=self.PriceHistory.FrequencyType.MINUTE,
                 frequency=self.PriceHistory.Frequency.EVERY_FIFTEEN_MINUTES,
                 start_datetime=start_datetime,
@@ -972,7 +983,6 @@ class BaseClient(EnumEnforcer, ABC):
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.DAY,
-                period=self.PriceHistory.Period.ONE_DAY,
                 frequency_type=self.PriceHistory.FrequencyType.MINUTE,
                 frequency=self.PriceHistory.Frequency.EVERY_THIRTY_MINUTES,
                 start_datetime=start_datetime,
@@ -997,7 +1007,6 @@ class BaseClient(EnumEnforcer, ABC):
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.YEAR,
-                period=self.PriceHistory.Period.TWENTY_YEARS,
                 frequency_type=self.PriceHistory.FrequencyType.DAILY,
                 frequency=self.PriceHistory.Frequency.DAILY,
                 start_datetime=start_datetime,
@@ -1022,7 +1031,6 @@ class BaseClient(EnumEnforcer, ABC):
         return self.get_price_history(
                 symbol,
                 period_type=self.PriceHistory.PeriodType.YEAR,
-                period=self.PriceHistory.Period.TWENTY_YEARS,
                 frequency_type=self.PriceHistory.FrequencyType.WEEKLY,
                 frequency=self.PriceHistory.Frequency.WEEKLY,
                 start_datetime=start_datetime,

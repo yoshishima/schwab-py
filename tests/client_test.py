@@ -1,18 +1,15 @@
-import asyncio
 import datetime
 import logging
-import os
-import pytest
 import pytz
 import schwab
 import unittest
-from unittest.mock import ANY, MagicMock, Mock, patch, PropertyMock
+from unittest.mock import MagicMock, patch, PropertyMock
 
 from schwab.client import AsyncClient, Client
 from schwab.client.base import BaseClient
 from schwab.orders.generic import OrderBuilder
 
-from .utils import AsyncMagicMock, ResyncProxy, no_duplicates
+from .utils import AsyncMagicMock, ResyncProxy
 
 # Constants
 
@@ -41,6 +38,7 @@ NOW_DATE_ISO = '2020-01-02'
 
 NOW_DATETIME_MINUS_60_DAYS = NOW_DATE - datetime.timedelta(days=60)
 NOW_DATETIME_MINUS_60_DAYS_ISO = '2019-11-03T03:04:05.000Z'
+NOW_DATETIME_MINUS_365_DAYS_ISO = '2019-01-02T03:04:05.000Z'
 
 NOW_TIMESTAMP_MILLIS = int(NOW_DATETIME.replace(
         tzinfo=datetime.timezone.utc).timestamp()) * 1000
@@ -314,7 +312,7 @@ class _TestClient:
         self.client.get_orders_for_account(ACCOUNT_HASH)
         self.mock_session.get.assert_called_once_with(
             self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
-                'fromEnteredTime': NOW_DATETIME_MINUS_60_DAYS_ISO,
+                'fromEnteredTime': NOW_DATETIME_MINUS_365_DAYS_ISO,
                 'toEnteredTime': NOW_DATETIME_ISO
             })
 
@@ -346,7 +344,7 @@ class _TestClient:
         self.client.get_orders_for_account(ACCOUNT_HASH, max_results=100)
         self.mock_session.get.assert_called_once_with(
             self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
-                'fromEnteredTime': NOW_DATETIME_MINUS_60_DAYS_ISO,
+                'fromEnteredTime': NOW_DATETIME_MINUS_365_DAYS_ISO,
                 'toEnteredTime': NOW_DATETIME_ISO,
                 'maxResults': 100,
             })
@@ -371,7 +369,7 @@ class _TestClient:
                     year=2024, month=6, day=5, hour=4, minute=3, second=2))
         self.mock_session.get.assert_called_once_with(
             self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
-                'fromEnteredTime': NOW_DATETIME_MINUS_60_DAYS_ISO,
+                'fromEnteredTime': NOW_DATETIME_MINUS_365_DAYS_ISO,
                 'toEnteredTime': '2024-06-05T04:03:02.000Z',
             })
 
@@ -382,7 +380,7 @@ class _TestClient:
                 ACCOUNT_HASH, status=self.client_class.Order.Status.FILLED)
         self.mock_session.get.assert_called_once_with(
             self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
-                'fromEnteredTime': NOW_DATETIME_MINUS_60_DAYS_ISO,
+                'fromEnteredTime': NOW_DATETIME_MINUS_365_DAYS_ISO,
                 'toEnteredTime': NOW_DATETIME_ISO,
                 'status': 'FILLED'
             })
@@ -406,7 +404,7 @@ class _TestClient:
         self.client.get_orders_for_account(ACCOUNT_HASH, status='NOT_A_STATUS')
         self.mock_session.get.assert_called_once_with(
             self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
-                'fromEnteredTime': NOW_DATETIME_MINUS_60_DAYS_ISO,
+                'fromEnteredTime': NOW_DATETIME_MINUS_365_DAYS_ISO,
                 'toEnteredTime': NOW_DATETIME_ISO,
                 'status': 'NOT_A_STATUS'
             })
@@ -794,7 +792,15 @@ class _TestClient:
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/quotes'), params={
                 'symbols': 'AAPL,MSFT',
-                'indicative': 'true'})
+                'indicative': True})
+
+
+    def test_get_quotes_indicative_false(self):
+        self.client.get_quotes(['AAPL', 'MSFT'], indicative=False)
+        self.mock_session.get.assert_called_once_with(
+            self.make_url('/marketdata/v1/quotes'), params={
+                'symbols': 'AAPL,MSFT',
+                'indicative': False})
 
 
     def test_get_quotes_indicative_not_bool(self):
@@ -928,12 +934,27 @@ class _TestClient:
                 'needExtendedHoursData': True})
 
 
+    def test_get_price_history_need_extended_hours_data_not_bool(self):
+        with self.assertRaisesRegex(
+                ValueError,
+                "value of 'need_extended_hours_data' must be either True or False"):
+            self.client.get_price_history(
+                SYMBOL, need_extended_hours_data='true')
+
+
     def test_get_price_history_need_previous_close(self):
         self.client.get_price_history(SYMBOL, need_previous_close=True)
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'), params={
                 'symbol': SYMBOL,
                 'needPreviousClose': True})
+
+
+    def test_get_price_history_need_previous_close_not_bool(self):
+        with self.assertRaisesRegex(
+                ValueError,
+                "value of 'need_previous_close' must be either True or False"):
+            self.client.get_price_history(SYMBOL, need_previous_close=1)
 
 
     # get_option_chain
@@ -976,6 +997,14 @@ class _TestClient:
             self.make_url('/marketdata/v1/chains'), params={
                 'symbol': 'AAPL',
                 'includeUnderlyingQuote': True})
+
+
+    def test_get_option_chain_include_underlying_quote_not_bool(self):
+        with self.assertRaisesRegex(
+                ValueError,
+                "value of 'include_underlying_quote' must be either True or False"):
+            self.client.get_option_chain(
+                'AAPL', include_underlying_quote='true')
 
     
     def test_get_option_chain_strategy(self):
@@ -1173,8 +1202,6 @@ class _TestClient:
         params = {
                 'symbol': 'AAPL',
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_MINUTE
                 'frequency': 1,
@@ -1193,8 +1220,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_MINUTE
                 'frequency': 1,
@@ -1213,8 +1238,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_MINUTE
                 'frequency': 1,
@@ -1233,8 +1256,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_MINUTE
                 'frequency': 1,
@@ -1253,8 +1274,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_MINUTE
                 'frequency': 1,
@@ -1273,8 +1292,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_MINUTE
                 'frequency': 1,
@@ -1293,8 +1310,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_MINUTE
                 'frequency': 1,
@@ -1317,8 +1332,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
@@ -1337,8 +1350,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
@@ -1357,8 +1368,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
@@ -1377,8 +1386,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
@@ -1397,8 +1404,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
@@ -1417,8 +1422,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
@@ -1437,8 +1440,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
@@ -1460,8 +1461,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
@@ -1480,8 +1479,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
@@ -1500,8 +1497,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
@@ -1520,8 +1515,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
@@ -1540,8 +1533,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
@@ -1560,8 +1551,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
@@ -1580,8 +1569,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
@@ -1603,8 +1590,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
@@ -1623,8 +1608,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
@@ -1643,8 +1626,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
@@ -1663,8 +1644,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
@@ -1683,8 +1662,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
@@ -1703,8 +1680,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
@@ -1723,8 +1698,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
@@ -1746,8 +1719,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
@@ -1766,8 +1737,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
@@ -1786,8 +1755,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
@@ -1806,8 +1773,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
@@ -1826,8 +1791,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
@@ -1846,8 +1809,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
@@ -1866,8 +1827,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'day',
-                # ONE_DAY
-                'period': 1,
                 'frequencyType': 'minute',
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
@@ -1889,8 +1848,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'daily',
                 # DAILY
                 'frequency': 1,
@@ -1909,8 +1866,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'daily',
                 # DAILY
                 'frequency': 1,
@@ -1929,8 +1884,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'daily',
                 # DAILY
                 'frequency': 1,
@@ -1949,8 +1902,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'daily',
                 # DAILY
                 'frequency': 1,
@@ -1969,8 +1920,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'daily',
                 # DAILY
                 'frequency': 1,
@@ -1989,8 +1938,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'daily',
                 # DAILY
                 'frequency': 1,
@@ -2009,8 +1956,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'daily',
                 # DAILY
                 'frequency': 1,
@@ -2032,8 +1977,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'weekly',
                 # WEEKLY
                 'frequency': 1,
@@ -2052,8 +1995,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'weekly',
                 # WEEKLY
                 'frequency': 1,
@@ -2072,8 +2013,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'weekly',
                 # WEEKLY
                 'frequency': 1,
@@ -2092,8 +2031,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'weekly',
                 # WEEKLY
                 'frequency': 1,
@@ -2112,8 +2049,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'weekly',
                 # WEEKLY
                 'frequency': 1,
@@ -2132,8 +2067,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'weekly',
                 # WEEKLY
                 'frequency': 1,
@@ -2152,8 +2085,6 @@ class _TestClient:
         params = {
                 'symbol': SYMBOL,
                 'periodType': 'year',
-                # TWENTY_YEARS
-                'period': 20,
                 'frequencyType': 'weekly',
                 # WEEKLY
                 'frequency': 1,
