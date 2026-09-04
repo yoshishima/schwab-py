@@ -137,6 +137,7 @@ class StreamClient(EnumEnforcer):
         self._message_waiters = deque()
         self._response_waiters = {}
         self._reader_task = None
+        self._reader_wakeup = asyncio.Event()
 
     def set_json_decoder(self, json_decoder):
         '''
@@ -193,6 +194,11 @@ class StreamClient(EnumEnforcer):
         return ret
 
     async def _init_from_preferences(self, prefs, websocket_connect_args):
+        # A login replaces the socket, so make sure a reader from an earlier
+        # connection cannot continue consuming from it.
+        await self._stop_reader()
+        self._overflow_items.clear()
+
         # Record streamer subscription keys
         stream_info = prefs['streamerInfo'][0]
 
@@ -312,10 +318,52 @@ class StreamClient(EnumEnforcer):
     def _ensure_reader(self):
         if self._reader_task is None or self._reader_task.done():
             self._reader_task = asyncio.create_task(self._reader_loop())
+        self._reader_wakeup.set()
+
+    def _next_message_waiter(self):
+        while self._message_waiters:
+            waiter = self._message_waiters.popleft()
+            if not waiter.done():
+                return waiter
+        return None
+
+    def _has_message_waiters(self):
+        while (self._message_waiters
+                and self._message_waiters[0].done()):
+            self._message_waiters.popleft()
+        return bool(self._message_waiters)
+
+    def _deliver_message(self, msg):
+        waiter = self._next_message_waiter()
+        if waiter is None:
+            return False
+        waiter.set_result(msg)
+        return True
+
+    async def _stop_reader(self):
+        task = self._reader_task
+        if (task is not None and not task.done()
+                and task is not asyncio.current_task()):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        self._reader_wakeup.clear()
+
+        for waiter in self._response_waiters.values():
+            if not waiter.done():
+                waiter.cancel()
+        for waiter in self._message_waiters:
+            if not waiter.done():
+                waiter.cancel()
+        self._response_waiters.clear()
+        self._message_waiters.clear()
 
     async def _stop_reader_if_idle(self):
         task = self._reader_task
-        if (not self._response_waiters and not self._message_waiters
+        if (not self._response_waiters and not self._has_message_waiters()
                 and task is not None and not task.done()
                 and task is not asyncio.current_task()):
             task.cancel()
@@ -324,46 +372,49 @@ class StreamClient(EnumEnforcer):
             except asyncio.CancelledError:
                 pass
 
+            # A waiter may have arrived while the cancelled reader task was
+            # finishing. Ensure it is not left without a dispatcher.
+            if self._response_waiters or self._has_message_waiters():
+                self._ensure_reader()
+
     async def _reader_loop(self):
-        deferred_messages = []
+        deferred_messages = deque()
         try:
-            while self._response_waiters or self._message_waiters:
-                while deferred_messages and self._message_waiters:
-                    waiter = self._message_waiters.popleft()
-                    if not waiter.done():
-                        waiter.set_result(deferred_messages.pop(0))
+            while True:
+                await self._reader_wakeup.wait()
 
-                if not self._response_waiters and not self._message_waiters:
-                    break
+                while True:
+                    while deferred_messages:
+                        if not self._deliver_message(deferred_messages[0]):
+                            break
+                        deferred_messages.popleft()
 
-                msg = await self._receive()
+                    if (not self._response_waiters
+                            and not self._has_message_waiters()):
+                        self._reader_wakeup.clear()
+                        break
 
-                if 'response' in msg and self._response_waiters:
-                    response_request_id = int(
-                            msg['response'][0]['requestid'])
-                    waiter = self._response_waiters.pop(
-                            response_request_id, None)
+                    msg = await self._receive()
 
-                    # Preserve the historical behavior for malformed response
-                    # IDs: the sole request waiter receives the response and
-                    # raises UnexpectedResponse during validation.
-                    if waiter is None and len(self._response_waiters) == 1:
-                        _, waiter = self._response_waiters.popitem()
+                    if 'response' in msg and self._response_waiters:
+                        response_request_id = int(
+                                msg['response'][0]['requestid'])
+                        waiter = self._response_waiters.pop(
+                                response_request_id, None)
 
-                    if waiter is not None and not waiter.done():
-                        waiter.set_result(msg)
-                    elif self._message_waiters:
-                        waiter = self._message_waiters.popleft()
-                        if not waiter.done():
+                        # Preserve the historical behavior for malformed
+                        # response IDs: the sole request waiter receives the
+                        # response and raises UnexpectedResponse during
+                        # validation.
+                        if waiter is None and len(self._response_waiters) == 1:
+                            _, waiter = self._response_waiters.popitem()
+
+                        if waiter is not None and not waiter.done():
                             waiter.set_result(msg)
-                    else:
+                        elif not self._deliver_message(msg):
+                            deferred_messages.append(msg)
+                    elif not self._deliver_message(msg):
                         deferred_messages.append(msg)
-                elif self._message_waiters:
-                    waiter = self._message_waiters.popleft()
-                    if not waiter.done():
-                        waiter.set_result(msg)
-                else:
-                    deferred_messages.append(msg)
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
@@ -377,6 +428,7 @@ class StreamClient(EnumEnforcer):
             self._message_waiters.clear()
         finally:
             self._overflow_items.extendleft(deferred_messages)
+            self._reader_wakeup.clear()
             self._reader_task = None
 
     async def _send_request_and_await_response(
@@ -394,9 +446,12 @@ class StreamClient(EnumEnforcer):
             else:
                 resp = await asyncio.wait_for(
                         waiter, timeout=self._response_timeout)
-        finally:
+        except BaseException:
             self._response_waiters.pop(request_id, None)
             await self._stop_reader_if_idle()
+            raise
+        else:
+            self._response_waiters.pop(request_id, None)
 
         self._validate_response(resp, request_id, service, command)
 
@@ -463,12 +518,28 @@ class StreamClient(EnumEnforcer):
 
         try:
             msg = await waiter
-        finally:
+        except asyncio.CancelledError:
+            # Cancellation can race with the reader delivering this waiter.
+            # Put an already-delivered message back so the next consumer sees
+            # it instead of silently losing it.
+            if waiter.done() and not waiter.cancelled():
+                try:
+                    delivered_message = waiter.result()
+                except BaseException:
+                    pass
+                else:
+                    self._overflow_items.appendleft(delivered_message)
             try:
                 self._message_waiters.remove(waiter)
             except ValueError:
                 pass
             await self._stop_reader_if_idle()
+            raise
+        else:
+            try:
+                self._message_waiters.remove(waiter)
+            except ValueError:
+                pass
 
         # response
         if 'response' in msg:
@@ -560,6 +631,7 @@ class StreamClient(EnumEnforcer):
             parameters={})
         await self._send_request_and_await_response(
                 request, request_id, 'ADMIN', 'LOGOUT')
+        await self._stop_reader()
         await self._socket.close()
         self._socket = None
 

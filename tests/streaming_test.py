@@ -346,6 +346,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         socket.send.assert_awaited_once()
         socket.close.assert_awaited_once()
+        self.assertIsNone(self.client._reader_task)
         request = self.request_from_socket_mock(socket)
 
         self.assertEqual(request, {
@@ -5662,6 +5663,48 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         await self.client.handle_message()
         handler.assert_called_once_with(stream_item_1['data'][0])
         async_handler.assert_called_once_with(stream_item_1['data'][0])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_handle_message_reuses_reader_task(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+
+        stream_item_1 = self.streaming_entry('CHART_EQUITY', 'SUBS')
+        stream_item_2 = self.streaming_entry('CHART_EQUITY', 'ADD')
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(
+                1, 'CHART_EQUITY', 'SUBS')),
+            json.dumps(stream_item_1),
+            json.dumps(stream_item_2)]
+
+        await self.client.chart_equity_subs(['GOOG'])
+        reader_task = self.client._reader_task
+
+        await self.client.handle_message()
+        self.assertIs(self.client._reader_task, reader_task)
+        self.assertFalse(reader_task.done())
+
+        await self.client.handle_message()
+        self.assertIs(self.client._reader_task, reader_task)
+        self.assertFalse(reader_task.done())
+
+        await self.client._stop_reader()
+
+    @no_duplicates
+    async def test_cancelled_handle_message_restores_delivered_message(self):
+        stream_item = self.streaming_entry('CHART_EQUITY', 'SUBS')
+
+        async def deliver_message_and_cancel():
+            self.client._message_waiters[0].set_result(stream_item)
+            handle_task.cancel()
+
+        self.client._reader_loop = deliver_message_and_cancel
+
+        handle_task = asyncio.create_task(self.client.handle_message())
+        with self.assertRaises(asyncio.CancelledError):
+            await handle_task
+
+        self.assertEqual(self.client._overflow_items.pop(), stream_item)
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
