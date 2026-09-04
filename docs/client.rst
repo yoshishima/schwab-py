@@ -219,15 +219,15 @@ Price History
 Schwab provides price history for equities and ETFs. It does not provide price 
 history for options, futures, or any other instruments. 
 
-In the raw API, fetching price history is somewhat complicated: the API offers a 
-single endpoint :meth:`Client.get_price_history` that accepts a complex variety 
-of inputs, but fails to document them in any meaningful way.
+The raw :meth:`Client.get_price_history` endpoint supports either a period or an
+explicit start and end date. The convenience methods below always use an
+explicit date range: a missing start date defaults to January 1, 1971 UTC, and a
+missing end date defaults to the current time. They therefore omit the
+``period`` query parameter. Schwab may still limit the returned history based on
+the requested candle frequency.
 
-Thankfully, we've reverse engineered this endpoint and built some helpful 
-utilities for fetching prices by minute, day, week, etc. Each method can be 
-called with or without date bounds. When called without date bounds, it returns 
-all data available. Each method offers a different lookback period, so make sure 
-to read the documentation below to learn how much data is available. 
+Use the convenience methods to fetch candles by minute, day, or week. Supply
+``start_datetime`` and ``end_datetime`` when you need narrower bounds.
 
 
 .. automethod:: schwab.client.Client.get_price_history_every_minute
@@ -316,6 +316,12 @@ instead of creating your own order specs.
 -------------------------
 Accessing Existing Orders
 -------------------------
+
+When date bounds are omitted, account-specific queries request the preceding
+365 days, while queries across all linked accounts request the preceding 60
+days. These defaults reflect the different maximum ranges supported by the two
+Schwab endpoints. Both methods default the end of the range to the current
+time.
 
 .. automethod:: schwab.client.Client.get_orders_for_account
 .. automethod:: schwab.client.Client.get_orders_for_all_linked_accounts

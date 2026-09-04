@@ -319,15 +319,16 @@ class BaseClient(EnumEnforcer, ABC):
         '''Orders for a specific account. Optionally specify a single status on 
         which to filter.
 
-        :param max_results: The maximum number of orders to retrieve.
+        :param max_results: The maximum number of orders to retrieve. The API
+                            defaults to 3,000.
         :param from_entered_datetime: Specifies that no orders entered before
                                       this time should be returned. Date must
                                       be within one year of today's date.
-                                      Defaults to 365 days ago.
-                                      ``toEnteredTime`` must also be set.
+                                      Defaults to 365 days before the current
+                                      time.
         :param to_entered_datetime: Specifies that no orders entered after this
-                                    time should be returned. ``fromEnteredTime``
-                                    must also be set.
+                                    time should be returned. Defaults to the
+                                    current time.
         :param status: Restrict query to orders with this status. See
                        :class:`Order.Status` for options.
         '''
@@ -348,15 +349,16 @@ class BaseClient(EnumEnforcer, ABC):
         '''Orders for all linked accounts. Optionally specify a single status on 
         which to filter.
 
-        :param max_results: The maximum number of orders to retrieve.
+        :param max_results: The maximum number of orders to retrieve. The API
+                            defaults to 3,000.
         :param from_entered_datetime: Specifies that no orders entered before
                                       this time should be returned. Date must
                                       be within 60 days from today's date.
-                                      Defaults to 60 days ago.
-                                      ``toEnteredTime`` must also be set.
+                                      Defaults to 60 days before the current
+                                      time.
         :param to_entered_datetime: Specifies that no orders entered after this
-                                    time should be returned. ``fromEnteredTime``
-                                    must also be set.
+                                    time should be returned. Defaults to the
+                                    current time.
         :param status: Restrict query to orders with this status. See
                        :class:`Order.Status` for options.
         '''
@@ -520,15 +522,14 @@ class BaseClient(EnumEnforcer, ABC):
 
     def get_quote(self, symbol, *, fields=None):
         '''
-        Get quote for a symbol. Note due to limitations in URL encoding, this
-        method is not recommended for instruments with symbols symbols
-        containing non-alphanumeric characters, for example as futures like
-        ``/ES``. To get quotes for those symbols, use :meth:`Client.get_quotes`.
+        Get a quote for one symbol. Due to limitations in URL encoding, this
+        method is not recommended for symbols containing non-alphanumeric
+        characters, such as the futures symbol ``/ES``. Use
+        :meth:`Client.get_quotes` for those symbols.
 
-        :param symbol: Single symbol to fetch
+        :param symbol: Single symbol to fetch.
         :param fields: Fields to request. If unset, return all available data. 
-                       i.e. all fields. See :class:`GetQuote.Field` for options.
-        :param indicative: Include indicative quotes for requested ETF symbols.
+                       See :class:`Quote.Fields` for options.
         '''
         fields = self.convert_enum_iterable(fields, self.Quote.Fields)
         if fields:
@@ -540,12 +541,14 @@ class BaseClient(EnumEnforcer, ABC):
         return self._get_request(path, params)
 
     def get_quotes(self, symbols, *, fields=None, indicative=None):
-        '''Get quote for a symbol. This method supports all symbols, including
-        those containing non-alphanumeric characters like ``/ES``.
+        '''Get quotes for one or more symbols. This method supports symbols
+        containing non-alphanumeric characters, such as ``/ES``.
 
         :param symbols: Iterable of symbols to fetch.
         :param fields: Fields to request. If unset, return all available data. 
-                       i.e. all fields. See :class:`GetQuote.Field` for options.
+                       See :class:`Quote.Fields` for options.
+        :param indicative: Set to ``True`` to include indicative quotes for
+                           requested ETF symbols. Must be a boolean if provided.
         '''
         if isinstance(symbols, str):
             symbols = [symbols]
@@ -649,8 +652,9 @@ class BaseClient(EnumEnforcer, ABC):
                               :class:`Options.ContractType` for choices.
         :param strike_count: The number of strikes to return above and below
                              the at-the-money price.
-        :param include_underlying_quote: Include a quote for the underlying 
-                                         alongside the options chain?
+        :param include_underlying_quote: Set to ``True`` to include a quote for
+                                         the underlying alongside the options
+                                         chain. Must be a boolean if provided.
         :param strategy: If passed, returns a Strategy Chain. See
                         :class:`Options.Strategy` for choices.
         :param interval: Strike interval for spread strategy chains (see
@@ -810,18 +814,21 @@ class BaseClient(EnumEnforcer, ABC):
         '''Get price history for a symbol.
 
         :param period_type: The type of period to show.
-        :param period: The number of periods to show. Should not be provided if
-                       ``start_datetime`` and ``end_datetime``.
+        :param period: The number of periods to show. Do not provide this when
+                       both ``start_datetime`` and ``end_datetime`` are set.
         :param frequency_type: The type of frequency with which a new candle
                                is formed.
         :param frequency: The number of the frequencyType to be included in each
                           candle.
-        :param start_datetime: Start date.
+        :param start_datetime: Start date. If omitted, the API derives it from
+                               ``end_datetime`` and ``period``.
         :param end_datetime: End date. Default is previous trading day.
-        :param need_extended_hours_data: If true, return extended hours data.
-                                         Default is true.
-        :param need_previous_close: If true, return the previous close price and 
-                                    date.
+        :param need_extended_hours_data: Set to ``True`` to return extended
+                                         hours data. Must be a boolean if
+                                         provided. The API default is true.
+        :param need_previous_close: Set to ``True`` to return the previous close
+                                    price and date. Must be a boolean if
+                                    provided.
         '''
         period_type = self.convert_enum(
             period_type, self.PriceHistory.PeriodType)
