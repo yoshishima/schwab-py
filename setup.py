@@ -21,8 +21,6 @@ setuptools.setup(
     classifiers=[
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3 :: Only',
-        'Programming Language :: Python :: 3.10',
-        'Programming Language :: Python :: 3.11',
         'Programming Language :: Python :: 3.12',
         'Programming Language :: Python :: 3.13',
         'Programming Language :: Python :: 3.14',
@@ -32,18 +30,18 @@ setuptools.setup(
         'Natural Language :: English',
         'Topic :: Office/Business :: Financial :: Investment',
     ],
-    python_requires='>=3.10',
+    python_requires='>=3.12',
     install_requires=[
-        'autopep8',
-        'authlib',
-        'certifi',
-        'flask',
-        'httpx2',
-        'multiprocess',
-        'psutil',
-        'python-dateutil',
-        'urllib3',
-        'websockets'
+        'autopep8>=2.3.2',
+        'authlib>=1.8.0',
+        'certifi>=2026.7.22',
+        'flask>=3.1.3',
+        'httpx2>=2.12.0',
+        'multiprocess>=0.70.19',
+        'psutil>=7.2.2',
+        'python-dateutil>=2.9.0.post0',
+        'urllib3>=2.7.0',
+        'websockets>=17.1'
     ],
     extras_require={
         'dev': [

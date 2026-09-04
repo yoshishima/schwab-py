@@ -14,16 +14,12 @@ jobs:
       matrix:
         platform: [windows-latest, ubuntu-latest, macos-latest]
         python:
-        - version: "3.10"
-          toxenv: py310
-        - version: "3.11"
-          toxenv: py311
-        - version: "3.12"
-          toxenv: py312
-        - version: "3.13"
-          toxenv: py313
         - version: "3.14"
           toxenv: py314
+        - version: "3.13"
+          toxenv: py313
+        - version: "3.12"
+          toxenv: py312
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -44,14 +40,14 @@ jobs:
       run: tox
 
     - name: Report coverage
-      if: matrix.python.version == '3.10'
+      if: matrix.python.version == '3.14'
       run: |
         coverage combine
         coverage report
         coverage xml
 
     - name: Upload coverage to Codecov  
-      if: matrix.python.version == '3.10'
+      if: matrix.python.version == '3.14'
       uses: codecov/codecov-action@v4.0.1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
@@ -60,7 +56,7 @@ jobs:
         name: GitHub
 
     - name: Check twine
-      if: matrix.python.version == '3.10'
+      if: matrix.python.version == '3.14'
       run: |
         python -m build
         python -m twine check dist/*
@@ -71,8 +67,8 @@ jobs:
       matrix:
         platform: [ubuntu-latest]
         python:
-        - version: "3.12"
-          toxenv: py312
+        - version: "3.14"
+          toxenv: py314
     runs-on: ${{ matrix.platform }}
 
     steps:

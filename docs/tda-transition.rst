@@ -94,29 +94,29 @@ symbol for the S&P 500 index used to be ``$SPX.X``. Now, these indices are
 referred to without that suffix, so S&P 500 is just ``$SPX``.
 
 
-++++++++++++++++++++++++++++++++++++++++++++++
-``schwab-py`` only supports python 3.10 and up
-++++++++++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++
+``schwab-py`` only supports Python 3.12 and up
+++++++++++++++++++++++++++++++++++++++++++++++++++
 
 ``schwab-py`` depends heavily on async/await syntax and libraries for both its 
-functionality and development harnesses. The python ecosystem has been migrating 
+functionality and development harnesses. The Python ecosystem has been migrating
 from older, less elegant implementations of these concepts for years. At the 
 time of ``tda-api``'s writing (early 2020), support for these features was still 
-being evolving, and so the library was written with many concessions to the 
+evolving, and so the library was written with many concessions to the
 older style in mind. 
 
-Fast forward to 2024, and the python ecosystem has pretty much fully 
+Fast forward to 2024, and the Python ecosystem has pretty much fully
 transitioned to the async/await style. Since ``schwab-py`` is a brand-new 
 library with no legacy users, the authors decided to shed all the old code and 
-write it only modern style and libraries. This broke support for versions of 
-python older than 3.10. 
+write it using only modern syntax and libraries. This broke support for versions of
+Python older than 3.12.
 
-If you attempt to ``pip install schwab-py`` on a python installation older than 
-3.10, you will be greeted with something to the effect of ``Could not find a 
+If you attempt to ``pip install schwab-py`` on a Python installation older than
+3.12, you will be greeted with something to the effect of ``Could not find a
 version that satisfies the requirement schwab-py``. You must install a newer 
-version of python before you can use ``schwab-py``. We recommend using ``pyenv`` 
-to manage your python installations.
+version of Python before you can use ``schwab-py``. We recommend using ``pyenv``
+to manage your Python installations.
 
 Note further that this library will periodically shed support for obsolete 
-versions of python, as outlined on `this page 
+versions of Python, as outlined on `this page
 <https://devguide.python.org/versions/>`__.
