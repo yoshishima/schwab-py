@@ -34,18 +34,12 @@ _FIELDS_AND_SETTERS = (
     ('session', 'set_session', schwab.orders.common.Session),
     ('duration', 'set_duration', schwab.orders.common.Duration),
     ('orderType', 'set_order_type', schwab.orders.common.OrderType),
+    ('cancelTime', 'set_cancel_time', None),
     ('complexOrderStrategyType', 'set_complex_order_strategy_type',
         schwab.orders.common.ComplexOrderStrategyType),
     ('quantity', 'set_quantity', None),
-    # XXX: Destinations are weird/busted
-    #       * As of 2024-05-16, the example in the place_order documentation 
-    #         references destinationLinkName but not requestedDestination.
-    #       * The same documentation lists requestedDestination as a parameter 
-    #         to the method, but doesn't list destinationLinkName.
-    #       * Fetching historical orders returns orders which contain both.
-    #      These parameters are being ignored until we gain more clarity.
-    #('destinationLinkName', 'set_destination_link_name',
-    #    schwab.orders.common.Destination),
+    ('destinationLinkName', 'set_destination_link_name', None),
+    ('releaseTime', 'set_release_time', None),
     ('stopPrice', 'copy_stop_price', None),
     ('stopPriceLinkBasis', 'set_stop_price_link_basis',
         schwab.orders.common.StopPriceLinkBasis),
@@ -58,6 +52,7 @@ _FIELDS_AND_SETTERS = (
     ('priceLinkType', 'set_price_link_type',
         schwab.orders.common.PriceLinkType),
     ('price', 'copy_price', None),
+    ('taxLotMethod', 'set_tax_lot_method', schwab.orders.common.TaxLotMethod),
     ('activationPrice', 'set_activation_price', None),
     ('specialInstruction', 'set_special_instruction',
         schwab.orders.common.SpecialInstruction),
@@ -187,6 +182,8 @@ class FieldAST:
         if self.enum_type:
             imports[self.enum_type.__module__].add(self.enum_type.__qualname__)
             value = self.enum_type.__qualname__ + '.' + value
+        elif isinstance(value, str):
+            value = repr(value)
 
         lines.append(f'.{self.setter_name}({value})')
 

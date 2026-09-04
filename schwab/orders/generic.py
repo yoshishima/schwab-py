@@ -5,7 +5,7 @@ from enum import Enum
 from schwab.orders import common
 from schwab.utils import EnumEnforcer
 
-import httpx
+import httpx2 as httpx
 
 
 def _build_object(obj):
@@ -60,9 +60,11 @@ class OrderBuilder(EnumEnforcer):
         self._session = None
         self._duration = None
         self._orderType = None
+        self._cancelTime = None
         self._complexOrderStrategyType = None
         self._quantity = None
         self._destinationLinkName = None
+        self._releaseTime = None
         self._stopPrice = None
         self._stopPriceLinkBasis = None
         self._stopPriceLinkType = None
@@ -71,6 +73,7 @@ class OrderBuilder(EnumEnforcer):
         self._priceLinkBasis = None
         self._priceLinkType = None
         self._price = None
+        self._taxLotMethod = None
         self._orderLegCollection = None
         self._activationPrice = None
         self._specialInstruction = None
@@ -128,6 +131,19 @@ class OrderBuilder(EnumEnforcer):
         self._orderType = None
         return self
 
+    # CancelTime
+    def set_cancel_time(self, cancel_time):
+        '''Set the order cancellation time as an ISO-8601 string.'''
+        if not isinstance(cancel_time, str):
+            raise ValueError('cancel_time must be passed as str')
+        self._cancelTime = cancel_time
+        return self
+
+    def clear_cancel_time(self):
+        '''Clear the order cancellation time.'''
+        self._cancelTime = None
+        return self
+
     # ComplexOrderStrategyType
     def set_complex_order_strategy_type(self, complex_order_strategy_type):
         '''
@@ -152,7 +168,9 @@ class OrderBuilder(EnumEnforcer):
         Exact semantics unknown. See :ref:`undocumented_quantity` for a
         discussion.
         '''
-        if quantity <= 0:
+        if (isinstance(quantity, bool)
+                or not isinstance(quantity, (int, float))
+                or quantity <= 0):
             raise ValueError('quantity must be positive')
         self._quantity = quantity
         return self
@@ -167,11 +185,16 @@ class OrderBuilder(EnumEnforcer):
     # DestinationLinkName
     def set_destination_link_name(self, destination_link_name):
         '''
-        Set the destination link name. See
-        :class:`~schwab.orders.common.Destination` for details.
+        Set the destination link name from Schwab's free-form request field.
+
+        :class:`~schwab.orders.common.Destination` is also accepted for
+        backward compatibility, though that enum represents the separate
+        response-only ``requestedDestination`` field.
         '''
-        destination_link_name = self.convert_enum(
-            destination_link_name, common.Destination)
+        if isinstance(destination_link_name, common.Destination):
+            destination_link_name = destination_link_name.value
+        elif not isinstance(destination_link_name, str):
+            raise ValueError('destination_link_name must be passed as str')
         self._destinationLinkName = destination_link_name
         return self
 
@@ -180,6 +203,19 @@ class OrderBuilder(EnumEnforcer):
         Clear the destination link name
         '''
         self._destinationLinkName = None
+        return self
+
+    # ReleaseTime
+    def set_release_time(self, release_time):
+        '''Set the order release time as an ISO-8601 string.'''
+        if not isinstance(release_time, str):
+            raise ValueError('release_time must be passed as str')
+        self._releaseTime = release_time
+        return self
+
+    def clear_release_time(self):
+        '''Clear the order release time.'''
+        self._releaseTime = None
         return self
 
     # StopPrice
@@ -340,6 +376,19 @@ class OrderBuilder(EnumEnforcer):
         self._price = None
         return self
 
+    # TaxLotMethod
+    def set_tax_lot_method(self, tax_lot_method):
+        '''Set the tax-lot selection method.'''
+        tax_lot_method = self.convert_enum(
+                tax_lot_method, common.TaxLotMethod)
+        self._taxLotMethod = tax_lot_method
+        return self
+
+    def clear_tax_lot_method(self):
+        '''Clear the tax-lot selection method.'''
+        self._taxLotMethod = None
+        return self
+
     # ActivationPrice
     def set_activation_price(self, activation_price):
         '''
@@ -419,7 +468,9 @@ class OrderBuilder(EnumEnforcer):
     def __add_order_leg(self, instruction, instrument, quantity):
         # instruction is assumed to have been verified
 
-        if quantity <= 0:
+        if (isinstance(quantity, bool)
+                or not isinstance(quantity, (int, float))
+                or quantity <= 0):
             raise ValueError('quantity must be positive')
 
         if self._orderLegCollection is None:

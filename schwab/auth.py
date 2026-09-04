@@ -2,7 +2,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
 
 import collections
 import contextlib
-import httpx
+import httpx2 as httpx
 import json
 import logging
 import multiprocess
@@ -13,7 +13,7 @@ import stat
 import sys
 import tempfile
 import time
-import urllib
+import urllib.parse
 import urllib3
 import warnings
 import webbrowser

@@ -1,4 +1,4 @@
-import httpx
+import httpx2 as httpx
 import unittest
 
 from schwab.orders.generic import *
@@ -159,18 +159,61 @@ class OrderBuilderTest(unittest.TestCase):
         self.assertFalse(has_diff({}, self.order_builder.build()))
 
     @no_duplicates
-    def test_destination_link_name_wrong_type(self):
-        with self.assertRaisesRegex(
-                ValueError, 'schwab.orders.common.Destination.INET'):
-            self.order_builder.set_destination_link_name('INET')
+    def test_destination_link_name_free_form_string(self):
+        self.order_builder.set_destination_link_name('AutoRoute')
+        self.assertFalse(has_diff({
+            'destinationLinkName': 'AutoRoute'
+        }, self.order_builder.build()))
 
     @no_duplicates
-    def test_destination_link_name_wrong_type_no_check(self):
-        self.order_builder = OrderBuilder(enforce_enums=False)
-        self.order_builder.set_destination_link_name('INET')
+    def test_destination_link_name_wrong_type(self):
+        with self.assertRaisesRegex(ValueError, 'must be passed as str'):
+            self.order_builder.set_destination_link_name(123)
+
+    ##########################################################################
+    # CancelTime / ReleaseTime / TaxLotMethod
+
+    @no_duplicates
+    def test_cancel_time(self):
+        self.order_builder.set_cancel_time('2026-09-04T20:00:00.000Z')
         self.assertFalse(has_diff({
-            'destinationLinkName': 'INET'
+            'cancelTime': '2026-09-04T20:00:00.000Z'
         }, self.order_builder.build()))
+        self.order_builder.clear_cancel_time()
+        self.assertFalse(has_diff({}, self.order_builder.build()))
+
+    @no_duplicates
+    def test_cancel_time_wrong_type(self):
+        with self.assertRaisesRegex(ValueError, 'must be passed as str'):
+            self.order_builder.set_cancel_time(123)
+
+    @no_duplicates
+    def test_release_time(self):
+        self.order_builder.set_release_time('2026-09-04T13:30:00.000Z')
+        self.assertFalse(has_diff({
+            'releaseTime': '2026-09-04T13:30:00.000Z'
+        }, self.order_builder.build()))
+        self.order_builder.clear_release_time()
+        self.assertFalse(has_diff({}, self.order_builder.build()))
+
+    @no_duplicates
+    def test_release_time_wrong_type(self):
+        with self.assertRaisesRegex(ValueError, 'must be passed as str'):
+            self.order_builder.set_release_time(123)
+
+    @no_duplicates
+    def test_tax_lot_method(self):
+        self.order_builder.set_tax_lot_method(TaxLotMethod.FIFO)
+        self.assertFalse(has_diff({
+            'taxLotMethod': 'FIFO'
+        }, self.order_builder.build()))
+        self.order_builder.clear_tax_lot_method()
+        self.assertFalse(has_diff({}, self.order_builder.build()))
+
+    @no_duplicates
+    def test_tax_lot_method_wrong_type(self):
+        with self.assertRaisesRegex(ValueError, 'TaxLotMethod.FIFO'):
+            self.order_builder.set_tax_lot_method('FIFO')
 
     ##########################################################################
     # StopPrice
@@ -702,10 +745,11 @@ class OrderBuilderTest(unittest.TestCase):
                 OptionInstruction.BUY_TO_OPEN, 'GOOG31433C1342', 0)
 
 
-class OrderBuilderExamplesTest(unittest.TestCase):
+class OrderBuilderValidationExamplesTest(unittest.TestCase):
 
     def setUp(self):
         self.maxDiff = None
+        self.order_builder = OrderBuilder()
 
     ##########################################################################
     # Functional tests from here:
@@ -716,12 +760,10 @@ class OrderBuilderExamplesTest(unittest.TestCase):
             self.order_builder.set_quantity(-12)
 
     @no_duplicates
-    def test_quantity_wrong_type_no_check(self):
+    def test_quantity_wrong_type(self):
         self.order_builder = OrderBuilder(enforce_enums=False)
-        self.order_builder.set_quantity('')
-        self.assertFalse(has_diff({
-            'quantity': ''
-        }, self.order_builder.build()))
+        with self.assertRaisesRegex(ValueError, 'quantity must be positive'):
+            self.order_builder.set_quantity('')
 
 
 class OrderBuilderExamplesTest(unittest.TestCase):

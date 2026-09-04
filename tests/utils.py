@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import asyncio
 import difflib
 import inspect
-import httpx
+import httpx2 as httpx
 import json
 
 class AnyStringWith(str):

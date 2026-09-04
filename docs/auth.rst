@@ -40,6 +40,8 @@ your issues in the `Discord server <https://discord.gg/BEr6y6Xqyv>`__. See
 
 .. code-block:: python
 
+  import httpx2 as httpx
+
   from schwab.auth import easy_client
 
   # Follow the instructions on the screen to authenticate your client.

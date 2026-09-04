@@ -1,3 +1,4 @@
+import asyncio
 import schwab
 import urllib.parse
 import json
@@ -62,6 +63,21 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         return account
 
+    @no_duplicates
+    def test_custom_json_decoder(self):
+        class CustomJsonDecoder(streaming.StreamJsonDecoder):
+            def decode_json_string(self, raw):
+                return {'raw': raw}
+
+        decoder = CustomJsonDecoder()
+        self.client.set_json_decoder(decoder)
+        self.assertIs(self.client.json_decoder, decoder)
+
+    @no_duplicates
+    def test_custom_json_decoder_wrong_type(self):
+        with self.assertRaisesRegex(ValueError, 'StreamJsonDecoder'):
+            self.client.set_json_decoder(object())
+
     def request_from_socket_mock(self, socket):
         return json.loads(
             socket.send.call_args_list[0][0][0])['requests'][0]
@@ -118,54 +134,6 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         socket.reset_mock()
         return socket
-
-
-    # TODO: Revive this test once the contrib module comes back.
-
-    '''
-    ##########################################################################
-    # Custom JSON Decoder
-
-
-    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_default_parser_invalid_message(self, ws_connect):
-        socket = await self.login_and_get_socket(ws_connect)
-
-        socket.recv.side_effect = ['invalid json']
-
-        # No custom parser
-        msg = ('Failed to parse message. This often happens with ' +
-               'unknown symbols or other error conditions. Full ' +
-               'message text:')
-        with self.assertRaisesRegex(schwab.streaming.UnparsableMessage, msg):
-            await self.client.level_one_equity_subs(['GOOG', 'MSFT'])
-
-
-    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_custom_parser_invalid_message(self, ws_connect):
-        socket = await self.login_and_get_socket(ws_connect)
-
-        socket.recv.side_effect = ['invalid json']
-
-        class CustomJsonDecoder(schwab.contrib.util.StreamJsonDecoder):
-            def decode_json_string(_, raw):
-                self.assertEqual(raw, 'invalid json')
-                return self.success_response(1, 'LEVELONE_EQUITIES', 'SUBS')
-
-        self.client.set_json_decoder(CustomJsonDecoder())
-        await self.client.level_one_equity_subs(['GOOG', 'MSFT'])
-
-
-    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
-    async def test_custom_parser_wrong_type(self, ws_connect):
-        socket = await self.login_and_get_socket(ws_connect)
-
-        socket.recv.side_effect = ['invalid json']
-
-        with self.assertRaises(ValueError):
-            self.client.set_json_decoder('')
-    '''
-
 
     ##########################################################################
     # Login
@@ -377,6 +345,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         await self.client.logout()
 
         socket.send.assert_awaited_once()
+        socket.close.assert_awaited_once()
         request = self.request_from_socket_mock(socket)
 
         self.assertEqual(request, {
@@ -5726,6 +5695,37 @@ class StreamClientTest(IsolatedAsyncioTestCase):
     async def test_handle_message_without_login(self, ws_connect):
         with self.assertRaisesRegex(ValueError, '.*Socket not open.*'):
             await self.client.handle_message()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_service_operation_while_handle_message_is_waiting(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        incoming = asyncio.Queue()
+
+        async def receive():
+            return await incoming.get()
+
+        socket.recv.side_effect = receive
+        handler = Mock()
+        self.client.add_chart_equity_handler(handler)
+
+        handle_task = asyncio.create_task(self.client.handle_message())
+        await asyncio.sleep(0)
+
+        subscription_task = asyncio.create_task(
+                self.client.chart_equity_subs(['GOOG']))
+        await asyncio.sleep(0)
+
+        await incoming.put(json.dumps(self.success_response(
+                1, 'CHART_EQUITY', 'SUBS')))
+        await asyncio.wait_for(subscription_task, timeout=1.0)
+
+        stream_item = self.streaming_entry('CHART_EQUITY', 'SUBS')
+        await incoming.put(json.dumps(stream_item))
+        await asyncio.wait_for(handle_task, timeout=1.0)
+
+        handler.assert_called_once_with(stream_item['data'][0])
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)

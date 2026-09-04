@@ -1,5 +1,5 @@
 import callee
-import httpx
+import httpx2 as httpx
 import subprocess
 import unittest
 from unittest.mock import call, MagicMock, patch
@@ -210,7 +210,7 @@ class LatestOrderTest(unittest.TestCase):
 
         mock_client.get_account_numbers.assert_called_once()
         mock_print.assert_called_once_with(
-                AnyStringWith('Failed to find account has for account ID'))
+                AnyStringWith('Failed to find account hash for account ID'))
 
 
     @no_duplicates

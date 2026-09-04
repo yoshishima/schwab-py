@@ -463,7 +463,7 @@ class ConstructRepeatOrderTest(unittest.TestCase):
             'orderType': 'NET_DEBIT',
             'complexOrderStrategyType': 'BUTTERFLY',
             'quantity': 1.0,
-            #'destinationLinkName': 'AUTO',
+            'destinationLinkName': 'AUTO',
             'price': 0.03,
             'orderStrategyType': 'SINGLE',
             'orderLegCollection': [{

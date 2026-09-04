@@ -60,7 +60,7 @@ class BaseClient(EnumEnforcer):
     _DATE = datetime.date
 
     def _log_response(self, resp, req_num):
-        self.logger.debug('Req %s: GET response: %s, content=%s',
+        self.logger.debug('Req %s: response: %s, content=%s',
             req_num, resp.status_code, resp.text)
 
     def _req_num(self):
@@ -87,9 +87,15 @@ class BaseClient(EnumEnforcer):
         self._assert_type(var_name, dt, [self._DATE, self._DATETIME])
 
         if not isinstance(dt, self._DATETIME):
-            dt = datetime.datetime(year=dt.year, month=dt.month, day=dt.day)
+            dt = datetime.datetime(
+                    year=dt.year, month=dt.month, day=dt.day,
+                    tzinfo=datetime.timezone.utc)
+        elif dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        else:
+            dt = dt.astimezone(datetime.timezone.utc)
 
-        return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+        return dt.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
     def _format_date_as_day(self, var_name, dt):
         '''Formats datetime or date objects as YYYY-MM-DD'''
@@ -102,6 +108,9 @@ class BaseClient(EnumEnforcer):
         'Converts datetime objects to compatible millisecond values'
         self._assert_type(var_name, dt, [self._DATETIME])
 
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+
         return int(dt.timestamp() * 1000)
 
 
@@ -109,9 +118,9 @@ class BaseClient(EnumEnforcer):
         '''Sets the timeout configuration for this client. Applies to all HTTP 
         calls.
 
-        :param timeout: ``httpx`` timeout configuration. Passed directly to 
-                        underlying ``httpx`` library. See
-                        `here <https://www.python-httpx.org/advanced/
+        :param timeout: ``httpx2`` timeout configuration. Passed directly to
+                        underlying ``httpx2`` library. See
+                        `here <https://httpx2.pydantic.dev/advanced/
                         #setting-a-default-timeout-on-a-client>`__ for
                         examples.'''
         self.session.timeout = timeout
@@ -153,8 +162,8 @@ class BaseClient(EnumEnforcer):
 
     def get_account_numbers(self):
         '''
-        Returns a mapping from account IDs available to this token to the 
-        account hash that should be passed whenever referring to that account in 
+        Returns a list of account-number/account-hash mappings available to this
+        token. Account hashes should be used whenever referring to an account in
         API calls.
         '''
         path = '/trader/v1/accounts/accountNumbers'
@@ -260,7 +269,7 @@ class BaseClient(EnumEnforcer):
         :param max_results: The maximum number of orders to retrieve.
         :param from_entered_datetime: Specifies that no orders entered before
                                       this time should be returned. Date must
-                                      be within 60 days from today's date.
+                                      be within one year of today's date.
                                       ``toEnteredTime`` must also be set.
         :param to_entered_datetime: Specifies that no orders entered after this
                                     time should be returned. ``fromEnteredTime``
@@ -371,7 +380,7 @@ class BaseClient(EnumEnforcer):
         :param account_hash: Account hash corresponding to the account whose 
                              transactions should be returned.
         :param start_date: Only transactions after this date will be returned.
-                           Date must be within 60 days of the current date. If 
+                           Date must be within one year of the current date. If
                            this parameter is not set, it will be set to 60 days 
                            prior to now.
                            Accepts ``datetime.date`` and ``datetime.datetime``.
@@ -790,7 +799,7 @@ class BaseClient(EnumEnforcer):
         if need_previous_close is not None:
             params['needPreviousClose'] = need_previous_close
 
-        path = '/marketdata/v1/pricehistory'.format(symbol)
+        path = '/marketdata/v1/pricehistory'
         return self._get_request(path, params)
 
 
@@ -799,10 +808,11 @@ class BaseClient(EnumEnforcer):
 
     def __normalize_start_and_end_datetimes(self, start_datetime, end_datetime):
         if start_datetime is None:
-            start_datetime = datetime.datetime(year=1971, month=1, day=1)
+            start_datetime = datetime.datetime(
+                    year=1971, month=1, day=1,
+                    tzinfo=datetime.timezone.utc)
         if end_datetime is None:
-            end_datetime = (datetime.datetime.utcnow() +
-                    datetime.timedelta(days=7))
+            end_datetime = datetime.datetime.now(datetime.timezone.utc)
 
         return start_datetime, end_datetime
 
@@ -1057,7 +1067,7 @@ class BaseClient(EnumEnforcer):
         markets = self.convert_enum_iterable(markets, self.MarketHours.Market)
 
         params = {
-                'markets': ','.join(markets)
+                'markets': markets
         }
         if date is not None:
             params['date'] = self._format_date_as_day('date', date)

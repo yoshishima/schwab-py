@@ -27,7 +27,11 @@ class LogRedactor:
         Registers a string that should not be emitted and the label with with
         which it should be replaced.
         '''
+        if string is None:
+            return
         string = str(string)
+        if not string:
+            return
         if string not in self.redacted_strings:
             self.label_counts[label] += 1
             self.redacted_strings[string] = (label, self.label_counts[label])
@@ -37,7 +41,9 @@ class LogRedactor:
         Scans the string for secret strings and returns a sanitized version with
         the secrets replaced with placeholders.
         '''
-        for string, label in self.redacted_strings.items():
+        redactions = sorted(
+                self.redacted_strings.items(), key=lambda item: -len(item[0]))
+        for string, label in redactions:
             label, count = label
             msg = msg.replace(string, '<REDACTED {}{}>'.format(
                 label, '-{}'.format(count) if
@@ -65,11 +71,11 @@ def register_redactions_from_response(resp):
 
 
 def register_redactions(obj, key_path=None,
-                        bad_patterns=[
+                        bad_patterns=(
                             'auth', 'acl', 'displayname', 'id', 'key', 'token',
                             'accountnumber', 'hashvalue', 'firstname',
-                            'lastname', 'nickname'],
-                        whitelisted=set([
+                            'lastname', 'nickname'),
+                        whitelisted=frozenset((
                             'requestid',
                             'token_type',
                             'legid',
@@ -78,7 +84,7 @@ def register_redactions(obj, key_path=None,
                             'lastid',
                             'bidsizeinlong',
                             'bidsizeindouble',
-                            'bidpriceindouble'])):
+                            'bidpriceindouble'))):
     '''
     Recursively iterates through the leaf elements of ``obj`` and registers
     elements with keys matching a blacklist with the global ``Redactor``.

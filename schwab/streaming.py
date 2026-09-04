@@ -4,13 +4,10 @@ from enum import Enum
 
 import asyncio
 import copy
-import datetime
-import httpx
+import httpx2 as httpx
 import inspect
 import json
 import logging
-import schwab
-import urllib.parse
 
 from websockets.asyncio import client as ws_client
 
@@ -149,9 +146,9 @@ class StreamClient(EnumEnforcer):
                              incoming JSON strings. See
                              :class:`StreamJsonDecoder` for details.
         '''
-        if not isinstance(json_decoder, schwab.contrib.util.StreamJsonDecoder):
+        if not isinstance(json_decoder, StreamJsonDecoder):
             raise ValueError('Custom JSON parser must be a subclass of ' +
-                             'schwab.contrib.util.StreamJsonDecoder')
+                             'schwab.streaming.StreamJsonDecoder')
         self.json_decoder = json_decoder
 
     def req_num(self):
@@ -316,6 +313,17 @@ class StreamClient(EnumEnforcer):
         if self._reader_task is None or self._reader_task.done():
             self._reader_task = asyncio.create_task(self._reader_loop())
 
+    async def _stop_reader_if_idle(self):
+        task = self._reader_task
+        if (not self._response_waiters and not self._message_waiters
+                and task is not None and not task.done()
+                and task is not asyncio.current_task()):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
     async def _reader_loop(self):
         deferred_messages = []
         try:
@@ -388,6 +396,7 @@ class StreamClient(EnumEnforcer):
                         waiter, timeout=self._response_timeout)
         finally:
             self._response_waiters.pop(request_id, None)
+            await self._stop_reader_if_idle()
 
         self._validate_response(resp, request_id, service, command)
 
@@ -414,6 +423,38 @@ class StreamClient(EnumEnforcer):
         await self._send_request_and_await_response(
                 request, request_id, service, command)
 
+    @staticmethod
+    def _with_required_field(fields, required_field):
+        if not fields:
+            return fields
+        fields = list(fields)
+        if required_field not in fields:
+            fields.append(required_field)
+        return fields
+
+    def _handler_task_done(self, task):
+        self._handler_tasks.discard(task)
+        if task.cancelled():
+            return
+        exception = task.exception()
+        if exception is not None:
+            self.logger.error(
+                    'Asynchronous stream handler failed',
+                    exc_info=(type(exception), exception,
+                              exception.__traceback__))
+
+    def _dispatch_handlers(self, service, message, *, label_message=False):
+        handlers = self._handlers[service]
+        if label_message and handlers:
+            message = handlers[0].label_message(message)
+
+        for handler in handlers:
+            result = handler(message)
+            if inspect.isawaitable(result):
+                task = asyncio.create_task(result)
+                self._handler_tasks.add(task)
+                task.add_done_callback(self._handler_task_done)
+
     async def handle_message(self):
         loop = asyncio.get_running_loop()
         waiter = loop.create_future()
@@ -427,6 +468,7 @@ class StreamClient(EnumEnforcer):
                 self._message_waiters.remove(waiter)
             except ValueError:
                 pass
+            await self._stop_reader_if_idle()
 
         # response
         if 'response' in msg:
@@ -438,17 +480,8 @@ class StreamClient(EnumEnforcer):
         # data
         if 'data' in msg:
             for d in msg['data']:
-                if d['service'] in self._handlers:
-                    for handler in self._handlers[d['service']]:
-                        labeled_d = handler.label_message(d)
-                        h = handler(labeled_d)
-
-                        # Check if h is an awaitable, if so schedule it
-                        # This allows for both sync and async handlers
-                        if inspect.isawaitable(h):
-                            task = asyncio.create_task(h)
-                            self._handler_tasks.add(task)
-                            task.add_done_callback(self._handler_tasks.discard)
+                self._dispatch_handlers(
+                        d['service'], d, label_message=True)
 
         # notify
         if 'notify' in msg:
@@ -456,15 +489,7 @@ class StreamClient(EnumEnforcer):
                 if 'heartbeat' in d:
                     pass
                 else:
-                    for handler in self._handlers[d['service']]:
-                        h = handler(d)
-
-                        # Check if h is an awaitable, if so schedule oit
-                        # This allows for both sync and async handlers
-                        if inspect.isawaitable(h):
-                            task = asyncio.create_task(h)
-                            self._handler_tasks.add(task)
-                            task.add_done_callback(self._handler_tasks.discard)
+                    self._dispatch_handlers(d['service'], d)
 
     ##########################################################################
     # LOGIN
@@ -941,8 +966,8 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneEquityFields.SYMBOL not in fields:
-            fields.append(self.LevelOneEquityFields.SYMBOL)
+        fields = self._with_required_field(
+                fields, self.LevelOneEquityFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_EQUITIES', 'SUBS', self.LevelOneEquityFields,
             fields=fields)
@@ -971,8 +996,8 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneEquityFields.SYMBOL not in fields:
-            fields.append(self.LevelOneEquityFields.SYMBOL)
+        fields = self._with_required_field(
+                fields, self.LevelOneEquityFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_EQUITIES', 'ADD',
             self.LevelOneEquityFields, fields=fields)
@@ -1174,8 +1199,8 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneOptionFields.SYMBOL not in fields:
-            fields.append(self.LevelOneOptionFields.SYMBOL)
+        fields = self._with_required_field(
+                fields, self.LevelOneOptionFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_OPTIONS', 'SUBS', self.LevelOneOptionFields,
             fields=fields)
@@ -1203,8 +1228,8 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneOptionFields.SYMBOL not in fields:
-            fields.append(self.LevelOneOptionFields.SYMBOL)
+        fields = self._with_required_field(
+                fields, self.LevelOneOptionFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_OPTIONS', 'ADD',
             self.LevelOneOptionFields, fields=fields)
@@ -1361,8 +1386,8 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneFuturesFields.SYMBOL not in fields:
-            fields.append(self.LevelOneFuturesFields.SYMBOL)
+        fields = self._with_required_field(
+                fields, self.LevelOneFuturesFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FUTURES', 'SUBS', self.LevelOneFuturesFields,
             fields=fields)
@@ -1391,8 +1416,8 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneFuturesFields.SYMBOL not in fields:
-            fields.append(self.LevelOneFuturesFields.SYMBOL)
+        fields = self._with_required_field(
+                fields, self.LevelOneFuturesFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FUTURES', 'ADD',
             self.LevelOneFuturesFields, fields=fields)
@@ -1516,8 +1541,8 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneForexFields.SYMBOL not in fields:
-            fields.append(self.LevelOneForexFields.SYMBOL)
+        fields = self._with_required_field(
+                fields, self.LevelOneForexFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FOREX', 'SUBS', self.LevelOneForexFields,
             fields=fields)
@@ -1547,8 +1572,8 @@ class StreamClient(EnumEnforcer):
                        fields will be requested.
 
         '''
-        if fields and self.LevelOneForexFields.SYMBOL not in fields:
-            fields.append(self.LevelOneForexFields.SYMBOL)
+        fields = self._with_required_field(
+                fields, self.LevelOneForexFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FOREX', 'ADD',
             self.LevelOneForexFields, fields=fields)
@@ -1678,8 +1703,8 @@ class StreamClient(EnumEnforcer):
                        representing the fields to return in streaming entries.
                        If unset, all fields will be requested.
         '''
-        if fields and self.LevelOneFuturesOptionsFields.SYMBOL not in fields:
-            fields.append(self.LevelOneFuturesOptionsFields.SYMBOL)
+        fields = self._with_required_field(
+                fields, self.LevelOneFuturesOptionsFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FUTURES_OPTIONS', 'SUBS',
             self.LevelOneFuturesOptionsFields, fields=fields)
@@ -1708,8 +1733,8 @@ class StreamClient(EnumEnforcer):
                        representing the fields to return in streaming entries.
                        If unset, all fields will be requested.
         '''
-        if fields and self.LevelOneFuturesOptionsFields.SYMBOL not in fields:
-            fields.append(self.LevelOneFuturesOptionsFields.SYMBOL)
+        fields = self._with_required_field(
+                fields, self.LevelOneFuturesOptionsFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FUTURES_OPTIONS', 'ADD',
             self.LevelOneFuturesOptionsFields, fields=fields)

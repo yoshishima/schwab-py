@@ -370,6 +370,19 @@ whether your order is actually executed there is up to Schwab.
 .. automethod:: schwab.orders.generic.OrderBuilder.set_destination_link_name
 .. automethod:: schwab.orders.generic.OrderBuilder.clear_destination_link_name
 
+The current request schema also exposes scheduled cancellation/release times
+and tax-lot selection:
+
+.. automethod:: schwab.orders.generic.OrderBuilder.set_cancel_time
+.. automethod:: schwab.orders.generic.OrderBuilder.clear_cancel_time
+.. automethod:: schwab.orders.generic.OrderBuilder.set_release_time
+.. automethod:: schwab.orders.generic.OrderBuilder.clear_release_time
+.. autoclass:: schwab.orders.common::TaxLotMethod
+  :members:
+  :undoc-members:
+.. automethod:: schwab.orders.generic.OrderBuilder.set_tax_lot_method
+.. automethod:: schwab.orders.generic.OrderBuilder.clear_tax_lot_method
+
 
 ++++++++++++++++++++
 Special Instructions

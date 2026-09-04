@@ -28,19 +28,20 @@ WATCHLIST_ID = 5000000
 
 MIN_DATETIME = datetime.datetime(year=1971, month=1, day=1)
 MIN_ISO = '1971-01-01T00:00:00+0000'
-MIN_TIMESTAMP_MILLIS = int(MIN_DATETIME.timestamp()) * 1000
+MIN_TIMESTAMP_MILLIS = int(
+        MIN_DATETIME.replace(tzinfo=datetime.timezone.utc).timestamp()) * 1000
 
 NOW_DATETIME = datetime.datetime(2020, 1, 2, 3, 4, 5)
 NOW_DATE = datetime.date(2020, 1, 2)
-NOW_DATETIME_ISO = '2020-01-02T03:04:05Z'
-NOW_DATETIME_TRUNCATED_ISO = '2020-01-02T00:00:00Z'
+NOW_DATETIME_ISO = '2020-01-02T03:04:05.000Z'
+NOW_DATETIME_TRUNCATED_ISO = '2020-01-02T00:00:00.000Z'
 NOW_DATE_ISO = '2020-01-02'
 
 NOW_DATETIME_MINUS_60_DAYS = NOW_DATE - datetime.timedelta(days=60)
-NOW_DATETIME_MINUS_60_DAYS_ISO = '2019-11-03T03:04:05Z'
+NOW_DATETIME_MINUS_60_DAYS_ISO = '2019-11-03T03:04:05.000Z'
 
-NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS = \
-        int((NOW_DATETIME + datetime.timedelta(days=7)).timestamp()) * 1000
+NOW_TIMESTAMP_MILLIS = int(NOW_DATETIME.replace(
+        tzinfo=datetime.timezone.utc).timestamp()) * 1000
 
 
 class mockdatetime(datetime.datetime):
@@ -271,7 +272,7 @@ class _TestClient:
                     year=2024, month=6, day=5, hour=4, minute=3, second=2))
         self.mock_session.get.assert_called_once_with(
             self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
-                'fromEnteredTime': '2024-06-05T04:03:02Z',
+                'fromEnteredTime': '2024-06-05T04:03:02.000Z',
                 'toEnteredTime': NOW_DATETIME_ISO,
             })
 
@@ -284,7 +285,7 @@ class _TestClient:
         self.mock_session.get.assert_called_once_with(
             self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
                 'fromEnteredTime': NOW_DATETIME_MINUS_60_DAYS_ISO,
-                'toEnteredTime': '2024-06-05T04:03:02Z',
+                'toEnteredTime': '2024-06-05T04:03:02.000Z',
             })
 
 
@@ -376,7 +377,7 @@ class _TestClient:
                     year=2024, month=6, day=5, hour=4, minute=3, second=2))
         self.mock_session.get.assert_called_once_with(
             self.make_url('/trader/v1/orders'), params={
-                'fromEnteredTime': '2024-06-05T04:03:02Z',
+                'fromEnteredTime': '2024-06-05T04:03:02.000Z',
                 'toEnteredTime': NOW_DATETIME_ISO,
             })
 
@@ -389,7 +390,7 @@ class _TestClient:
         self.mock_session.get.assert_called_once_with(
             self.make_url('/trader/v1/orders'), params={
                 'fromEnteredTime': NOW_DATETIME_MINUS_60_DAYS_ISO,
-                'toEnteredTime': '2024-06-05T04:03:02Z',
+                'toEnteredTime': '2024-06-05T04:03:02.000Z',
             })
 
 
@@ -603,7 +604,7 @@ class _TestClient:
             params={
                 'types': ','.join(t.value for t in self.client.Transactions.TransactionType),
                 'startDate': NOW_DATETIME_MINUS_60_DAYS_ISO,
-                'endDate': '2020-06-07T08:09:00Z'})
+                'endDate': '2020-06-07T08:09:00.000Z'})
 
 
     @patch('schwab.client.base.datetime.datetime', mockdatetime)
@@ -1091,7 +1092,7 @@ class _TestClient:
                 # EVERY_MINUTE
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1111,7 +1112,7 @@ class _TestClient:
                 # EVERY_MINUTE
                 'frequency': 1,
                 'startDate': EARLIER_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1151,7 +1152,7 @@ class _TestClient:
                 # EVERY_MINUTE
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1171,7 +1172,7 @@ class _TestClient:
                 # EVERY_MINUTE
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needExtendedHoursData': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1191,7 +1192,7 @@ class _TestClient:
                 # EVERY_MINUTE
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1211,7 +1212,7 @@ class _TestClient:
                 # EVERY_MINUTE
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needPreviousClose': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1235,7 +1236,7 @@ class _TestClient:
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1255,7 +1256,7 @@ class _TestClient:
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
                 'startDate': EARLIER_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1295,7 +1296,7 @@ class _TestClient:
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1315,7 +1316,7 @@ class _TestClient:
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needExtendedHoursData': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1335,7 +1336,7 @@ class _TestClient:
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1355,7 +1356,7 @@ class _TestClient:
                 # EVERY_FIVE_MINUTES
                 'frequency': 5,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needPreviousClose': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1378,7 +1379,7 @@ class _TestClient:
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1398,7 +1399,7 @@ class _TestClient:
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
                 'startDate': EARLIER_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1438,7 +1439,7 @@ class _TestClient:
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1458,7 +1459,7 @@ class _TestClient:
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needExtendedHoursData': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1478,7 +1479,7 @@ class _TestClient:
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1498,7 +1499,7 @@ class _TestClient:
                 # EVERY_TEN_MINUTES
                 'frequency': 10,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needPreviousClose': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1521,7 +1522,7 @@ class _TestClient:
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1541,7 +1542,7 @@ class _TestClient:
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
                 'startDate': EARLIER_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1581,7 +1582,7 @@ class _TestClient:
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1601,7 +1602,7 @@ class _TestClient:
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needExtendedHoursData': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1621,7 +1622,7 @@ class _TestClient:
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1641,7 +1642,7 @@ class _TestClient:
                 # EVERY_FIFTEEN_MINUTES
                 'frequency': 15,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needPreviousClose': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1664,7 +1665,7 @@ class _TestClient:
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1684,7 +1685,7 @@ class _TestClient:
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
                 'startDate': EARLIER_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1724,7 +1725,7 @@ class _TestClient:
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1744,7 +1745,7 @@ class _TestClient:
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needExtendedHoursData': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1764,7 +1765,7 @@ class _TestClient:
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1784,7 +1785,7 @@ class _TestClient:
                 # EVERY_THIRTY_MINUTES
                 'frequency': 30,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needPreviousClose': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1807,7 +1808,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1827,7 +1828,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': EARLIER_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1867,7 +1868,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1887,7 +1888,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needExtendedHoursData': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1907,7 +1908,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1927,7 +1928,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needPreviousClose': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -1950,7 +1951,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -1970,7 +1971,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': EARLIER_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -2010,7 +2011,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -2030,7 +2031,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needExtendedHoursData': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -2050,7 +2051,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
         }
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'),
@@ -2070,7 +2071,7 @@ class _TestClient:
                 # DAILY
                 'frequency': 1,
                 'startDate': MIN_TIMESTAMP_MILLIS,
-                'endDate': NOW_DATETIME_PLUS_SEVEN_DAYS_TIMESTAMP_MILLIS,
+                'endDate': NOW_TIMESTAMP_MILLIS,
                 'needPreviousClose': True,
         }
         self.mock_session.get.assert_called_once_with(
@@ -2138,10 +2139,10 @@ class _TestClient:
     
     def test_get_market_hours_single_market(self):
         self.client.get_market_hours(
-                self.client_class.MarketHours.Market.EQUITY)
+            self.client_class.MarketHours.Market.EQUITY)
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/markets'), params={
-                'markets': 'equity'})
+                'markets': ['equity']})
 
 
     def test_get_market_hours_market_list(self):
@@ -2150,7 +2151,7 @@ class _TestClient:
                  self.client_class.MarketHours.Market.OPTION])
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/markets'), params={
-                'markets': 'equity,option'})
+                'markets': ['equity', 'option']})
 
 
     def test_get_market_hours_market_unchecked(self):
@@ -2158,7 +2159,7 @@ class _TestClient:
         self.client.get_market_hours(['not-a-market'])
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/markets'), params={
-                'markets': 'not-a-market'})
+                'markets': ['not-a-market']})
 
 
     def test_get_market_hours_date(self):
@@ -2167,7 +2168,7 @@ class _TestClient:
                 date=NOW_DATE)
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/markets'), params={
-                'markets': 'equity',
+                'markets': ['equity'],
                 'date': NOW_DATE_ISO})
 
 

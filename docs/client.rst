@@ -20,7 +20,9 @@ this will likely cause issues with the underlying OAuth2 session management**
 
 .. code-block:: python
 
-  from schwab.auth import client_from_manual_flow
+  import httpx2 as httpx
+
+  from schwab.auth import easy_client
 
   # Follow the instructions on the screen to authenticate your client.
   c = easy_client(
@@ -46,12 +48,15 @@ of slightly increased application complexity.
 
 .. code-block:: python
 
-  from schwab.auth import client_from_manual_flow
+  import httpx2 as httpx
+
+  from schwab.auth import easy_client
 
   async def main():
       c = easy_client(
               api_key='APIKEY',
-              redirect_uri='https://localhost',
+              app_secret='APP_SECRET',
+              callback_url='https://localhost',
               token_path='/tmp/token.json',
               asyncio=True)
 
@@ -61,7 +66,7 @@ of slightly increased application complexity.
 
   if __name__ == '__main__':
       import asyncio
-      asyncio.run_until_complete(main())
+      asyncio.run(main())
 
 +++++++++++++++++++
 Calling Conventions
@@ -89,7 +94,7 @@ Return Values
 +++++++++++++
 
 All methods return a response object generated under the hood by the
-`HTTPX <https://www.python-httpx.org/quickstart/#response-content>`__ module. 
+`HTTPX2 <https://httpx2.pydantic.dev/quickstart/#response-content>`__ module.
 For a full listing of what's possible, read that module's documentation. Most if
 not all users can simply use the following pattern:
 
@@ -129,32 +134,24 @@ Account Hashes
 Many methods of this API are parametrized by account. However, the API does not 
 accept raw account numbers, but rather account hashes. You can fetch these 
 hashes using the ``get_account_numbers`` method :ref:`(link) 
-<account_hashes_method>`.  This method provides a mapping from raw account 
-number to the account hash that must be passed when referring to that account in 
+<account_hashes_method>`. This method provides a list of raw account-number and
+account-hash mappings. The hash must be passed when referring to an account in
 API calls.
 
 Here is an example of how to fetch an account hash and use it to place an order:
 
 .. code-block:: python
 
-  import atexit
-  import httpx
-  from selenium import webdriver
+  import httpx2 as httpx
 
   from schwab.auth import easy_client
   from schwab.orders.equities import equity_buy_market
-
-  def make_webdriver():
-      driver = webdriver.Firefox()
-      atexit.register(lambda: driver.quit())
-      return driver
 
   c = easy_client(
           token_path='/path/to/token.json',
           api_key='api-key',
           app_secret='app-secret',
-          callback_url='https://callback.com',
-          webdriver_func=make_webdriver)
+          callback_url='https://callback.com')
 
   resp = c.get_account_numbers()
   assert resp.status_code == httpx.codes.OK
@@ -177,7 +174,7 @@ Here is an example of how to fetch an account hash and use it to place an order:
 Timeout Management
 ++++++++++++++++++
 
-Timeouts for HTTP calls are managed under the hood by the ``httpx`` library.  
+Timeouts for HTTP calls are managed under the hood by the ``httpx2`` library.
 ``schwab-py`` defaults to 30 seconds, which experience has shown should be more 
 than enough to allow even the slowest API calls to complete. A different timeout 
 specification can be set using this method:

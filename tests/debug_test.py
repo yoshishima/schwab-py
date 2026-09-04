@@ -173,3 +173,24 @@ class EnableDebugLoggingTest(unittest.TestCase):
             schwab.debug.enable_bug_report_logging()
         except AttributeError:
             self.fail("debug.enable_bug_report_logging() raised AttributeError unexpectedly")
+
+    @no_duplicates
+    def test_log_writer_is_idempotent(self):
+        output = io.StringIO()
+        logger = logging.getLogger('idempotent-log-test')
+        write_logs = schwab.debug._enable_bug_report_logging(
+                output=output, loggers=[logger])
+        logger.info('message')
+
+        write_logs()
+        write_logs()
+
+        self.assertEqual(output.getvalue().count('BEGIN REDACTED LOGS'), 1)
+
+    @no_duplicates
+    def test_log_writer_tolerates_closed_output(self):
+        output = io.StringIO()
+        write_logs = schwab.debug._enable_bug_report_logging(
+                output=output, loggers=[])
+        output.close()
+        write_logs()

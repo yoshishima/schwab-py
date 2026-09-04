@@ -1,5 +1,5 @@
 import argparse
-import httpx
+import httpx2 as httpx
 import json
 
 from schwab.auth import client_from_token_file
@@ -40,7 +40,7 @@ def latest_order_main(sys_args):
                 account_hash = val['hashValue']
                 break
         else:
-            print(('Failed to find account has for account ID {}. Searched ' +
+            print(('Failed to find account hash for account ID {}. Searched ' +
                    'the following accounts:\n{}').format(
                        args.account_id, json.dumps(r.json(), indent=4)))
             return -1

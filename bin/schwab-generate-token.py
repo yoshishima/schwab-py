@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import argparse
-import atexit
 import sys
 
 import schwab
@@ -11,7 +10,7 @@ def main(api_key, app_secret, callback_url, token_path, requested_browser):
                 api_key, app_secret, callback_url, token_path,
                 requested_browser=requested_browser, callback_timeout=300)
         return 0
-    except:
+    except Exception:
         print('Failed to fetch a token using a web browser, falling back to '
                 'the manual flow')
 

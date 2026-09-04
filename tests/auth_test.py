@@ -360,6 +360,26 @@ class ClientFromTokenFileTest(unittest.TestCase):
                 'creation_timestamp': TOKEN_CREATION_TIMESTAMP
             })
 
+        if os.name == 'posix':
+            self.assertEqual(os.stat(self.token_path).st_mode & 0o777, 0o600)
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.AsyncOAuth2Client', new_callable=MockAsyncOAuthClient)
+    def test_failed_token_update_preserves_existing_file(
+            self, async_session, sync_session, client):
+        self.write_token()
+
+        auth.client_from_token_file(self.token_path, API_KEY, APP_SECRET)
+        update_token = sync_session.mock_calls[0][2]['update_token']
+
+        with self.assertRaises(TypeError):
+            update_token({'not-json-serializable': object()})
+
+        with open(self.token_path, 'r') as f:
+            self.assertEqual(json.load(f), self.token)
+
     @no_duplicates
     @patch('schwab.auth.Client')
     @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
