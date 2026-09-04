@@ -240,61 +240,6 @@ class StreamClient(EnumEnforcer):
 
         return request, request_id
 
-    async def _await_response(self, request_id, service, command):
-        deferred_messages = []
-
-        # Context handler to ensure we always append the deferred messages,
-        # regardless of how we exit the await loop below
-        class WriteDeferredMessages:
-            def __init__(self, this_client):
-                self.this_client = this_client
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc_val, exc_tb):
-                self.this_client._overflow_items.extendleft(deferred_messages)
-
-        with WriteDeferredMessages(self):
-            while True:
-                resp = await self._receive()
-
-                if 'response' not in resp:
-                    deferred_messages.append(resp)
-                    continue
-
-                # Validate request ID
-                resp_request_id = int(resp['response'][0]['requestid'])
-                if resp_request_id != request_id:
-                    raise UnexpectedResponse(
-                        resp, 'unexpected requestid: {}'.format(
-                            resp_request_id))
-
-                # Validate service
-                resp_service = resp['response'][0]['service']
-                if resp_service != service:
-                    raise UnexpectedResponse(
-                        resp, 'unexpected service: {}'.format(
-                            resp_service))
-
-                # Validate command
-                resp_command = resp['response'][0]['command']
-                if resp_command != command:
-                    raise UnexpectedResponse(
-                        resp, 'unexpected command: {}'.format(
-                            resp_command))
-
-                # Validate response code
-                resp_code = resp['response'][0]['content']['code']
-                if resp_code != 0:
-                    raise UnexpectedResponseCode(
-                        resp,
-                        'unexpected response code: {}, msg is \'{}\''.format(
-                            resp_code,
-                            resp['response'][0]['content']['msg']))
-
-                break
-
     def _validate_response(self, resp, request_id, service, command):
         if 'response' not in resp:
             raise UnexpectedResponse(resp, 'response payload missing')
@@ -440,13 +385,17 @@ class StreamClient(EnumEnforcer):
             self._reader_task = None
 
     async def _send_request_and_await_response(
-            self, request, request_id, service, command):
+            self, request, request_id, service, command, *,
+            acquire_send_lock=True):
         loop = asyncio.get_running_loop()
         waiter = loop.create_future()
         self._response_waiters[request_id] = waiter
 
         try:
-            async with self._send_lock:
+            if acquire_send_lock:
+                async with self._send_lock:
+                    await self._send({'requests': [request]})
+            else:
                 await self._send({'requests': [request]})
             self._ensure_reader()
             if self._response_timeout is None:
@@ -619,11 +568,14 @@ class StreamClient(EnumEnforcer):
         request, request_id = self._make_request(
             service='ADMIN', command='LOGIN',
             parameters=request_parameters)
-        async with self._send_lock:
-            await self._send({'requests': [request]})
-            await asyncio.wait_for(
-                    self._await_response(request_id, 'ADMIN', 'LOGIN'),
-                    timeout=self._response_timeout)
+        try:
+            async with self._send_lock:
+                await self._send_request_and_await_response(
+                        request, request_id, 'ADMIN', 'LOGIN',
+                        acquire_send_lock=False)
+        except BaseException:
+            await self._stop_reader()
+            raise
 
     ##########################################################################
     # LOGOUT

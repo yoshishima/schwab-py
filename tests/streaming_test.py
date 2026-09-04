@@ -223,6 +223,102 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_login_defers_stream_message(self, ws_connect):
+        self.http_client.get_user_preferences.return_value = MockResponse(
+            account_preferences(), 200)
+        socket = AsyncMock()
+        ws_connect.return_value = socket
+
+        stream_item = self.streaming_entry('CHART_EQUITY', 'SUBS')
+        socket.recv.side_effect = [
+            json.dumps(stream_item),
+            json.dumps(self.success_response(0, 'ADMIN', 'LOGIN'))]
+
+        handler = Mock()
+        self.client.add_chart_equity_handler(handler)
+
+        await self.client.login()
+        reader_task = self.client._reader_task
+        await self.client.handle_message()
+
+        handler.assert_called_once_with(stream_item['data'][0])
+        self.assertIs(self.client._reader_task, reader_task)
+        await self.client._stop_reader()
+
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_login_blocks_commands_until_response(self, ws_connect):
+        self.http_client.get_user_preferences.return_value = MockResponse(
+            account_preferences(), 200)
+        socket = AsyncMock()
+        ws_connect.return_value = socket
+
+        incoming = asyncio.Queue()
+        login_sent = asyncio.Event()
+        subscription_sent = asyncio.Event()
+        sent_commands = []
+
+        async def send(raw_request):
+            request = json.loads(raw_request)['requests'][0]
+            sent_commands.append(request['command'])
+            if request['command'] == 'LOGIN':
+                login_sent.set()
+            else:
+                subscription_sent.set()
+
+        async def receive():
+            return await incoming.get()
+
+        socket.send.side_effect = send
+        socket.recv.side_effect = receive
+
+        login_task = asyncio.create_task(self.client.login())
+        await asyncio.wait_for(login_sent.wait(), timeout=1.0)
+
+        subscription_task = asyncio.create_task(
+            self.client.chart_equity_subs(['GOOG']))
+        await asyncio.sleep(0)
+        self.assertFalse(subscription_sent.is_set())
+
+        await incoming.put(json.dumps(
+            self.success_response(0, 'ADMIN', 'LOGIN')))
+        await asyncio.wait_for(login_task, timeout=1.0)
+        await asyncio.wait_for(subscription_sent.wait(), timeout=1.0)
+
+        await incoming.put(json.dumps(
+            self.success_response(1, 'CHART_EQUITY', 'SUBS')))
+        await asyncio.wait_for(subscription_task, timeout=1.0)
+
+        self.assertEqual(sent_commands, ['LOGIN', 'SUBS'])
+        await self.client._stop_reader()
+
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_login_timeout_stops_reader(self, ws_connect):
+        self.client = StreamClient(self.http_client, response_timeout=0.01)
+        self.http_client.get_user_preferences.return_value = MockResponse(
+            account_preferences(), 200)
+        socket = AsyncMock()
+        ws_connect.return_value = socket
+        never_receive = asyncio.Event()
+
+        async def receive():
+            await never_receive.wait()
+
+        socket.recv.side_effect = receive
+
+        with self.assertRaises(asyncio.TimeoutError):
+            await self.client.login()
+
+        self.assertFalse(self.client._response_waiters)
+        self.assertIsNone(self.client._reader_task)
+        self.assertFalse(self.client._send_lock.locked())
+
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_login_bad_response(self, ws_connect):
         preferences = account_preferences()
         preferences['accounts'].clear()
