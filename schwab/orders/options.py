@@ -1,4 +1,5 @@
 import datetime
+from decimal import Decimal, DecimalException
 
 from schwab.orders.generic import OrderBuilder
 
@@ -15,6 +16,13 @@ def _parse_expiration_date(expiration_date):
         'expiration date must follow format ' +
         '[two digit year][Month with leading zero]' +
         '[Day with leading zero]')
+
+
+def _format_strike_price(strike_millis):
+    whole, fractional = divmod(strike_millis, 1000)
+    if fractional:
+        return '{}.{:03d}'.format(whole, fractional).rstrip('0')
+    return str(whole)
 
 
 class OptionSymbol:
@@ -84,25 +92,30 @@ class OptionSymbol:
                 '(e.g. 240614) or one of datetime.date or ' +
                 'datetime.datetime')
 
-        strike = None
+        strike_error = (
+                'strike price must be a string representing a positive '
+                'number with at most three decimal places')
+        if not isinstance(strike_price_as_string, str):
+            raise ValueError(strike_error)
+
         try:
-            strike = float(strike_price_as_string)
-        except ValueError:
-            pass
-        if (strike is None or not isinstance(strike_price_as_string, str)
-                or strike <= 0):
+            strike = Decimal(strike_price_as_string)
+            if not strike.is_finite() or strike <= 0:
+                raise ValueError(strike_error)
+
+            scaled_strike = strike * 1000
+            integral_strike = scaled_strike.to_integral_value()
+            if scaled_strike != integral_strike:
+                raise ValueError(strike_error)
+            strike_millis = int(integral_strike)
+        except (DecimalException, ValueError):
+            raise ValueError(strike_error) from None
+
+        if strike_millis > 99999999:
             raise ValueError(
-                'strike price must be a string representing a positive ' +
-                'float')
+                'strike price cannot be encoded in the eight-digit OSI field')
 
-        # Remove extraneous zeroes at the end
-        strike_copy = strike_price_as_string
-        while strike_copy[-1] == '0':
-            strike_copy = strike_copy[:-1]
-        if strike_copy[-1] == '.':
-            strike_price_as_string = strike_copy[:-1]
-
-        self.strike_price = strike_price_as_string
+        self.strike_price = _format_strike_price(strike_millis)
 
     @classmethod
     def parse_symbol(cls, symbol):
@@ -133,7 +146,9 @@ class OptionSymbol:
                     r'option must have contract type \'C\' r \'\P\', ' +
                     format_error_str)
 
-        strike = str(int(strike) / 1000.0)
+        if len(strike) != 8 or not strike.isdigit():
+            raise ValueError(format_error_str)
+        strike = _format_strike_price(int(strike))
 
         expiration_date = _parse_expiration_date(expiration_date)
 
@@ -147,7 +162,7 @@ class OptionSymbol:
             self.underlying_symbol,
             self.expiration_date.strftime('%y%m%d'),
             self.contract_type,
-            int(float(self.strike_price) * 1000)
+            int(Decimal(self.strike_price) * 1000)
         )
 
 

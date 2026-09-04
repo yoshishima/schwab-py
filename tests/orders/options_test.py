@@ -43,15 +43,34 @@ class OptionSymbolTest(unittest.TestCase):
         self.assertEqual('V     240510C00145000', op.build())
 
     def test_decimal_in_price(self):
-        op = OptionSymbol.parse_symbol('V     240510C00145000')
+        op = OptionSymbol.parse_symbol('V     240510C00145125')
         self.assertEqual(op.underlying_symbol, 'V')
         self.assertEqual(
                 op.expiration_date, datetime.date(
                     year=2024, month=5, day=10))
         self.assertEqual(op.contract_type, 'C')
-        self.assertEqual(op.strike_price, '145')
+        self.assertEqual(op.strike_price, '145.125')
 
-        self.assertEqual('V     240510C00145000', op.build())
+        self.assertEqual('V     240510C00145125', op.build())
+
+    def test_exact_decimal_strikes_avoid_binary_float_truncation(self):
+        expected = {
+            '2.01': 'QQQ   240420C00002010',
+            '8.03': 'QQQ   240420C00008030',
+        }
+        for strike, symbol in expected.items():
+            with self.subTest(strike=strike):
+                self.assertEqual(
+                    symbol, OptionSymbol('QQQ', '240420', 'C', strike).build())
+
+    def test_decimal_strike_parse_build_round_trip(self):
+        symbols = (
+            'QQQ   240420C00002010',
+            'QQQ   240420C00008030',
+        )
+        for symbol in symbols:
+            with self.subTest(symbol=symbol):
+                self.assertEqual(symbol, OptionSymbol.parse_symbol(symbol).build())
 
     def test_strike_over_1000(self):
         op = OptionSymbol.parse_symbol('BKNG  240510C02400000')
@@ -117,6 +136,14 @@ class OptionSymbolTest(unittest.TestCase):
                 ValueError, '.*strike price must be a string.*'):
             op = OptionSymbol(
                     'AAPL', datetime.date(2024, 5, 10), 'C', '0')
+
+    def test_strike_more_precise_than_osi_field(self):
+        with self.assertRaisesRegex(ValueError, '.*three decimal places.*'):
+            OptionSymbol('AAPL', '240510', 'C', '2.0101')
+
+    def test_strike_too_large_for_osi_field(self):
+        with self.assertRaisesRegex(ValueError, '.*eight-digit OSI field.*'):
+            OptionSymbol('AAPL', '240510', 'C', '100000')
 
 
 class OptionTemplatesTest(unittest.TestCase):
