@@ -153,6 +153,18 @@ class TokenMetadata:
 # client_from_login_flow
 
 
+def _get_callback_path(encoded_path):
+    '''Return a literal Flask route while preserving the OAuth redirect URI.'''
+    path = urllib.parse.unquote(encoded_path or '/', errors='strict')
+    # Flask interprets angle brackets as route variables and normalizes
+    # repeated slashes. Reject paths we cannot route literally.
+    if ('<' in path or '>' in path or '//' in path
+            or any(ord(char) < 32 for char in path)
+            or path == '/schwab-py-internal/status'):
+        raise ValueError('Unsupported callback URL path')
+    return path
+
+
 # This runs in a separate process and is invisible to coverage
 def __run_client_from_login_flow_server(
         q, callback_port, callback_path, readiness_token):  # pragma: no cover
@@ -328,7 +340,12 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
         raise ValueError('callback_timeout must be positive')
 
     # Start the server
-    parsed = urllib.parse.urlparse(callback_url)
+    parsed = urllib.parse.urlsplit(callback_url)
+
+    if (parsed.scheme != 'https' or parsed.username is not None
+            or parsed.password is not None or parsed.fragment):
+        raise ValueError(
+            'callback URL must use HTTPS without credentials or a fragment')
 
     if parsed.hostname != '127.0.0.1':
         # TODO: document this error
@@ -340,7 +357,7 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                      parsed.hostname))
 
     callback_port = parsed.port if parsed.port else 443
-    callback_path = parsed.path if parsed.path else '/'
+    callback_path = _get_callback_path(parsed.path)
 
     output_queue = multiprocess.Queue()
     readiness_token = secrets.token_urlsafe(32)

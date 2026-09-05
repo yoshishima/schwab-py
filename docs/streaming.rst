@@ -157,6 +157,27 @@ message and dispatches it to the appropriate handler or handlers.
 If a message is received for which no handler is registered, that message is 
 ignored.
 
+Each handler receives its own copy of the message, including nested content.
+Changes made by one handler do not affect other handlers.
+
+Asynchronous handlers run in background tasks. By default, a ``StreamClient``
+allows at most 100 pending handler tasks across all services. Set the positive
+integer ``max_pending_handler_tasks`` constructor argument to adjust this limit.
+When all slots are occupied, ``handle_message()`` waits for a handler to finish
+before invoking the next handler. Keep one message-consumption loop so this
+backpressure also limits how quickly your application reads from the socket.
+Slow handlers can still delay updates; handlers should finish promptly and use
+timeouts for external I/O.
+
+If a capacity wait is canceled, the next ``handle_message()`` call resumes the
+message at its next uncalled handler. Handlers already invoked are not repeated.
+
+Logout and reconnect cancel pending handler tasks from the previous connection.
+Handlers should release their resources when canceled and propagate
+``asyncio.CancelledError``. A handler may itself call ``logout()``; that handler
+is allowed to finish. Each handler runs independently, so completion order is
+not guaranteed for asynchronous handlers.
+
 Handlers should take a single argument representing the stream message received:
 
 .. code-block:: python

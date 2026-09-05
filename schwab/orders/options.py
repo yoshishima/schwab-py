@@ -25,6 +25,34 @@ def _format_strike_price(strike_millis):
     return str(whole)
 
 
+def _strike_price_to_millis(value):
+    error = ('strike price must be a string representing a positive '
+             'number with at most three decimal places')
+    if not isinstance(value, str):
+        raise ValueError(error)
+    try:
+        strike = Decimal(value)
+        if not strike.is_finite() or strike <= 0:
+            raise ValueError(error)
+    except DecimalException:
+        raise ValueError(error) from None
+
+    # Work on the exact coefficient and exponent. Decimal arithmetic would
+    # round to the caller's context precision before we could validate it.
+    _, digits, exponent = strike.as_tuple()
+    digits = list(digits)
+    while digits[-1] == 0:
+        digits.pop()
+        exponent += 1
+    exponent += 3
+    if exponent < 0:
+        raise ValueError(error)
+    if len(digits) + exponent > 8:
+        raise ValueError(
+            'strike price cannot be encoded in the eight-digit OSI field')
+    return int(''.join(map(str, digits))) * 10 ** exponent
+
+
 class OptionSymbol:
     '''Construct an option symbol from its constituent parts.
 
@@ -92,29 +120,7 @@ class OptionSymbol:
                 '(e.g. 240614) or one of datetime.date or ' +
                 'datetime.datetime')
 
-        strike_error = (
-                'strike price must be a string representing a positive '
-                'number with at most three decimal places')
-        if not isinstance(strike_price_as_string, str):
-            raise ValueError(strike_error)
-
-        try:
-            strike = Decimal(strike_price_as_string)
-            if not strike.is_finite() or strike <= 0:
-                raise ValueError(strike_error)
-
-            scaled_strike = strike * 1000
-            integral_strike = scaled_strike.to_integral_value()
-            if scaled_strike != integral_strike:
-                raise ValueError(strike_error)
-            strike_millis = int(integral_strike)
-        except (DecimalException, ValueError):
-            raise ValueError(strike_error) from None
-
-        if strike_millis > 99999999:
-            raise ValueError(
-                'strike price cannot be encoded in the eight-digit OSI field')
-
+        strike_millis = _strike_price_to_millis(strike_price_as_string)
         self.strike_price = _format_strike_price(strike_millis)
 
     @classmethod
@@ -162,7 +168,7 @@ class OptionSymbol:
             self.underlying_symbol,
             self.expiration_date.strftime('%y%m%d'),
             self.contract_type,
-            int(Decimal(self.strike_price) * 1000)
+            _strike_price_to_millis(self.strike_price)
         )
 
 

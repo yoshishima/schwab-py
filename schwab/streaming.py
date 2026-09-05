@@ -97,11 +97,27 @@ class _Handler:
             return msg
 
 
+class _PendingMessage(dict):
+    '''A received message whose handler dispatch can resume after cancellation.'''
+    def __init__(self, message):
+        super().__init__(message)
+        self.events = ([(entry, True) for entry in message.get('data', [])]
+                       + [(entry, False) for entry in message.get('notify', [])])
+        self.next_event = 0
+        self.next_handler = 0
+        self.handlers = None
+
+
 class StreamClient(EnumEnforcer):
 
     def __init__(self, client, *, account_id=None,
-                 enforce_enums=True, ssl_context=None, response_timeout=30.0):
+                 enforce_enums=True, ssl_context=None, response_timeout=30.0,
+                 max_pending_handler_tasks=100):
         super().__init__(enforce_enums)
+
+        if (type(max_pending_handler_tasks) is not int
+                or max_pending_handler_tasks <= 0):
+            raise ValueError('max_pending_handler_tasks must be a positive int')
 
         if account_id is not None:
             warnings.warn(
@@ -125,6 +141,8 @@ class StreamClient(EnumEnforcer):
         self._request_id = 0
         self._handlers = defaultdict(list)
         self._handler_tasks = set()
+        self._handler_slots = asyncio.Semaphore(max_pending_handler_tasks)
+        self._connection_generation = 0
         self._response_timeout = response_timeout
 
         # When listening for responses, we sometimes encounter non-response
@@ -203,10 +221,7 @@ class StreamClient(EnumEnforcer):
         return ret
 
     async def _init_from_preferences(self, prefs, websocket_connect_args):
-        # A login replaces the socket, so make sure a reader from an earlier
-        # connection cannot continue consuming from it.
-        await self._stop_reader()
-        self._overflow_items.clear()
+        await self._close_connection()
 
         # Record streamer subscription keys
         stream_info = prefs['streamerInfo'][0]
@@ -330,6 +345,27 @@ class StreamClient(EnumEnforcer):
             # finishing. Ensure it is not left without a dispatcher.
             if self._response_waiters or self._has_message_waiters():
                 self._ensure_reader()
+
+    async def _stop_handler_tasks(self):
+        # A handler may itself initiate logout or reconnect.
+        tasks = self._handler_tasks - {asyncio.current_task()}
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _close_connection(self):
+        self._connection_generation += 1
+        socket, self._socket = self._socket, None
+        try:
+            await self._stop_reader()
+        finally:
+            self._overflow_items.clear()
+            try:
+                await self._stop_handler_tasks()
+            finally:
+                if socket is not None:
+                    await socket.close()
 
     async def _reader_loop(self):
         deferred_messages = deque()
@@ -459,6 +495,7 @@ class StreamClient(EnumEnforcer):
 
     def _handler_task_done(self, task):
         self._handler_tasks.discard(task)
+        self._handler_slots.release()
         if task.cancelled():
             return
         exception = task.exception()
@@ -472,8 +509,12 @@ class StreamClient(EnumEnforcer):
                 exc_info=(type(exception), exception,
                           exception.__traceback__))
 
-    def _dispatch_handlers(self, service, message, *, label_message=False):
-        handlers = self._handlers[service]
+    async def _dispatch_handlers(self, service, message, *, dispatch_state,
+                                 label_message=False):
+        generation = self._connection_generation
+        if dispatch_state.handlers is None:
+            dispatch_state.handlers = tuple(self._handlers[service])
+        handlers = dispatch_state.handlers
         if label_message and handlers:
             try:
                 message = handlers[0].label_message(message)
@@ -482,18 +523,29 @@ class StreamClient(EnumEnforcer):
                         'Stream message relabeling failed', exception)
                 return
 
-        for handler in handlers:
+        for handler in handlers[dispatch_state.next_handler:]:
+            # Apply backpressure before invoking a handler or creating a task.
+            await self._handler_slots.acquire()
+            release_slot = True
             try:
-                result = handler(message)
+                if generation != self._connection_generation:
+                    return
+                result = handler(copy.deepcopy(message))
                 if inspect.isawaitable(result):
-                    task = asyncio.create_task(result)
+                    task = asyncio.ensure_future(result)
                     self._handler_tasks.add(task)
                     task.add_done_callback(self._handler_task_done)
+                    release_slot = False
             except Exception as exception:
                 self._log_handler_exception(
                         'Synchronous stream handler failed', exception)
+            finally:
+                dispatch_state.next_handler += 1
+                if release_slot:
+                    self._handler_slots.release()
 
     async def handle_message(self):
+        generation = self._connection_generation
         loop = asyncio.get_running_loop()
         waiter = loop.create_future()
         self._message_waiters.append(waiter)
@@ -505,13 +557,14 @@ class StreamClient(EnumEnforcer):
             # Cancellation can race with the reader delivering this waiter.
             # Put an already-delivered message back so the next consumer sees
             # it instead of silently losing it.
-            if waiter.done() and not waiter.cancelled():
+            if (generation == self._connection_generation
+                    and waiter.done() and not waiter.cancelled()):
                 try:
                     delivered_message = waiter.result()
                 except BaseException:
                     pass
                 else:
-                    self._overflow_items.appendleft(delivered_message)
+                    self._overflow_items.append(delivered_message)
             try:
                 self._message_waiters.remove(waiter)
             except ValueError:
@@ -531,24 +584,35 @@ class StreamClient(EnumEnforcer):
                                          msg['response'][0]['content']['code'],
                                          msg['response'][0]['content']['msg']))
 
-        # data
-        if 'data' in msg:
-            for d in msg['data']:
-                self._dispatch_handlers(
-                        d['service'], d, label_message=True)
-
-        # notify
-        if 'notify' in msg:
-            for d in msg['notify']:
-                if 'heartbeat' in d:
+        if not isinstance(msg, _PendingMessage):
+            msg = _PendingMessage(msg)
+        try:
+            while msg.next_event < len(msg.events):
+                if generation != self._connection_generation:
+                    return
+                entry, label_message = msg.events[msg.next_event]
+                if not label_message and 'heartbeat' in entry:
                     pass
-                elif 'service' in d:
-                    self._dispatch_handlers(d['service'], d)
+                elif label_message or 'service' in entry:
+                    await self._dispatch_handlers(
+                        entry['service'], entry, dispatch_state=msg,
+                        label_message=label_message)
                 else:
                     self.logger.warning(
                             'Ignoring stream notification without a service: '
                             '%s',
-                            LazyLog(lambda d=d: json.dumps(d, indent=4)))
+                            LazyLog(lambda entry=entry: json.dumps(entry, indent=4)))
+                msg.next_event += 1
+                msg.next_handler = 0
+                msg.handlers = None
+        except asyncio.CancelledError:
+            # Capacity waits may interrupt a partly dispatched message. Resume
+            # at the next uncalled handler instead of dropping it or repeating
+            # handlers that already ran.
+            if generation == self._connection_generation:
+                self._overflow_items.append(msg)
+            await self._stop_reader_if_idle()
+            raise
 
     ##########################################################################
     # LOGIN
@@ -589,23 +653,25 @@ class StreamClient(EnumEnforcer):
         await self._init_from_preferences(
                 r, websocket_connect_args if websocket_connect_args else {})
 
-        # Build and send the request object
-        request_parameters = {
+        try:
+            # Build and send the request object
+            request_parameters = {
                 'Authorization': self._client.token_metadata.token['access_token'],
                 'SchwabClientChannel': self._stream_channel,
                 'SchwabClientFunctionId': self._stream_function_id,
-        }
-
-        request, request_id = self._make_request(
-            service='ADMIN', command='LOGIN',
-            parameters=request_parameters)
-        try:
+            }
+            request, request_id = self._make_request(
+                service='ADMIN', command='LOGIN',
+                parameters=request_parameters)
             async with self._send_lock:
                 await self._send_request_and_await_response(
                         request, request_id, 'ADMIN', 'LOGIN',
                         acquire_send_lock=False)
         except BaseException:
-            await self._stop_reader()
+            try:
+                await self._close_connection()
+            except Exception:
+                self.logger.exception('Failed to close stream after login failure')
             raise
 
     ##########################################################################
@@ -620,11 +686,11 @@ class StreamClient(EnumEnforcer):
         request, request_id = self._make_request(
             service='ADMIN', command='LOGOUT',
             parameters={})
-        await self._send_request_and_await_response(
-                request, request_id, 'ADMIN', 'LOGOUT')
-        await self._stop_reader()
-        await self._socket.close()
-        self._socket = None
+        try:
+            await self._send_request_and_await_response(
+                    request, request_id, 'ADMIN', 'LOGOUT')
+        finally:
+            await self._close_connection()
 
     ##########################################################################
     # ACCT_ACTIVITY

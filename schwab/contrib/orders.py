@@ -5,7 +5,7 @@ from collections import defaultdict
 
 
 class UnrepeatableOrderError(ValueError):
-    '''Raised when a historical order cannot be converted into a new order.'''
+    '''Raised when an order cannot be reconstructed or generated faithfully.'''
 
 
 def _call_setters_with_values(order, builder):
@@ -62,26 +62,40 @@ _FIELDS_AND_SETTERS = (
         schwab.orders.common.OrderStrategyType),
 )
 
+def _validate_children(strategy, children):
+    if children is None:
+        children = []
+    if not isinstance(children, list):
+        raise UnrepeatableOrderError('childOrderStrategies must be a list')
+    expected = {'TRIGGER': 1, 'OCO': 2}.get(strategy, 0)
+    if len(children) != expected:
+        raise UnrepeatableOrderError(
+            'cannot repeat {!r} order with {} children; expected {}'.format(
+                strategy, len(children), expected))
+    return children
+
+
 def construct_repeat_order(historical_order):
+    '''Reconstruct an order, rejecting unsupported child-order structures.
+
+    TRIGGER requires one child and OCO requires two. Other strategies cannot
+    have children. Unsupported shapes raise UnrepeatableOrderError.
+    '''
+    if 'orderStrategyType' not in historical_order:
+        raise ValueError('historical order is missing orderStrategyType')
+    children = _validate_children(
+        historical_order['orderStrategyType'],
+        historical_order.get('childOrderStrategies'))
     builder = schwab.orders.generic.OrderBuilder()
 
     # Top-level fields
     _call_setters_with_values(historical_order, builder)
 
     # Composite orders
-    if 'orderStrategyType' in historical_order:
-        if historical_order['orderStrategyType'] == 'TRIGGER':
-            builder = schwab.orders.common.first_triggers_second(
-                    builder, construct_repeat_order(
-                        historical_order['childOrderStrategies'][0]))
-        elif historical_order['orderStrategyType'] == 'OCO':
-            builder = schwab.orders.common.one_cancels_other(
-                    construct_repeat_order(
-                        historical_order['childOrderStrategies'][0]),
-                    construct_repeat_order(
-                        historical_order['childOrderStrategies'][1]))
-    else:
-        raise ValueError('historical order is missing orderStrategyType')
+    for child in children:
+        if not isinstance(child, dict):
+            raise UnrepeatableOrderError('child orders must be dictionaries')
+        builder.add_child_order_strategy(construct_repeat_order(child))
 
     # Order legs
     if 'orderLegCollection' in historical_order:
@@ -115,6 +129,9 @@ def code_for_builder(builder, var_name=None):
     :param builder: :class:`~schwab.orders.generic.OrderBuilder` to generate.
     :param var_name: If set, emit code that assigns the builder to a variable
                      with this name.
+    :raises UnrepeatableOrderError: If children cannot be represented by the
+                                    supported TRIGGER/OCO helpers, or are not
+                                    OrderBuilder instances.
     '''
     ast = construct_order_ast(builder)
 
@@ -250,6 +267,11 @@ class GenericBuilderAST:
 
 
 def construct_order_ast(builder):
+    if not isinstance(builder, schwab.orders.generic.OrderBuilder):
+        raise UnrepeatableOrderError(
+            'code generation requires OrderBuilder children')
+    _validate_children(
+        builder._orderStrategyType, builder._childOrderStrategies)
     if builder._orderStrategyType == 'OCO':
         return OneCancelsOtherAST(
                 construct_order_ast(builder._childOrderStrategies[0]),
