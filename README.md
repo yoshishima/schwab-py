@@ -1,11 +1,11 @@
 # `schwab-py`: A Charles Schwab API wrapper
 
-[![Discord](https://img.shields.io/discord/720378361880248621.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/BEr6y6Xqyv)
-[![Patreon](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fshieldsio-patreon.vercel.app%2Fapi%3Fusername%3Dschwabpy%26type%3Dpatrons&style=flat)](https://patreon.com/schwabpy)
-[![Documentation](https://readthedocs.org/projects/schwab-py/badge/?version=latest)](https://schwab-py.readthedocs.io/en/latest/?badge=latest)
-[![Tests](https://github.com/alexgolec/schwab-py/actions/workflows/python.yml/badge.svg)](https://github.com/alexgolec/schwab-py/actions/workflows/python.yml)
-[![PyPI](https://badge.fury.io/py/schwab-py.svg)](https://badge.fury.io/py/schwab-py)
-[![Coverage](https://codecov.io/gh/alexgolec/schwab-py/branch/main/graph/badge.svg)](https://codecov.io/gh/alexgolec/schwab-py)
+[![Tests](https://github.com/yoshishima/schwab-py/actions/workflows/python.yml/badge.svg)](https://github.com/yoshishima/schwab-py/actions/workflows/python.yml)
+
+This is a maintained fork of [alexgolec's original `schwab-py`](https://github.com/alexgolec/schwab-py),
+created after the upstream project went a year without updates. Thank you to
+Alex Golec (`alexgolec`) for creating `schwab-py` and building the foundation
+this fork continues to develop.
 
 ## What is `schwab-py`?
 
@@ -28,18 +28,39 @@ Notable functionality includes:
 `schwab-py` requires Python 3.12 or newer. The test matrix covers Python 3.12,
 3.13, and 3.14, with current development focused on Python 3.14 compatibility.
 
+## Improvements in this fork
+
+The current fork is version 1.7.1. Changes since the original project include:
+
+- More reliable OAuth login and callback server startup, with clearer errors
+  when the callback server times out or another process owns its port.
+- Safer token file updates, including atomic replacement, restrictive file
+  permissions, and correct handling of token paths that are symlinks.
+- More robust streaming message delivery and handler dispatch, including
+  improved reader lifecycle handling and malformed message handling.
+- More precise order and option price calculations using `Decimal`, plus
+  clearer validation of numeric inputs and order builder state.
+- Corrected price history and order history query defaults, with validation
+  for optional boolean query parameters.
+- Updated dependencies and automated tests for Python 3.12, 3.13, and 3.14
+  on Windows, macOS, and Linux.
+
 ## Installation
 
 ```console
-pip install schwab-py
+python -m pip install git+https://github.com/yoshishima/schwab-py.git
 ```
+
+This command installs the current fork from GitHub. The `schwab-py` package on
+PyPI and the Read the Docs site are maintained separately from this fork and
+may describe a different version.
 
 Before using the library, create an account and application on the
 [Charles Schwab developer site](https://developer.schwab.com/login). Record the
 API key, app secret, and callback URL. The application must be approved by
 Schwab before it can access the APIs, which can take several days.
 
-See the [getting-started guide](https://schwab-py.readthedocs.io/en/latest/getting-started.html)
+See this repository's [getting-started guide](docs/getting-started.rst)
 for detailed setup instructions.
 
 ## Quick start
@@ -104,7 +125,7 @@ pass `indicative=True`, not `indicative='true'`. This validation also applies to
 
 The former TD Ameritrade APIs are no longer available, so `tda-api` cannot be
 used for new requests. See the
-[transition guide](https://schwab-py.readthedocs.io/en/latest/tda-transition.html)
+[transition guide](docs/tda-transition.rst)
 for migration instructions.
 
 ## Why use `schwab-py`?
@@ -131,16 +152,17 @@ for migration instructions.
 
 ## Documentation and support
 
-The complete documentation is available on
-[Read the Docs](https://schwab-py.readthedocs.io/en/latest/). Community support
-is available through the [Discord server](https://discord.gg/BEr6y6Xqyv).
+The documentation for this fork is in the [docs directory](docs/). The
+[upstream Read the Docs site](https://schwab-py.readthedocs.io/en/latest/)
+may cover a different version. Community support is available through the
+[upstream Discord server](https://discord.gg/BEr6y6Xqyv).
 
 Bug reports and suggestions can be submitted through
-[GitHub Issues](https://github.com/alexgolec/schwab-py/issues). Contributions are
-welcome through [pull requests](https://github.com/alexgolec/schwab-py/pulls).
+[GitHub Issues](https://github.com/yoshishima/schwab-py/issues). Contributions are
+welcome through [pull requests](https://github.com/yoshishima/schwab-py/pulls).
 
 `schwab-py` is released under the
-[MIT License](https://github.com/alexgolec/schwab-py/blob/main/LICENSE).
+[MIT License](LICENSE).
 
 ## Disclaimer
 
@@ -148,5 +170,5 @@ welcome through [pull requests](https://github.com/alexgolec/schwab-py/pulls).
 with Charles Schwab or any associated organization. Review and comply with the
 terms of service for the underlying APIs. The project authors accept no
 responsibility for damage resulting from use of this package. See the
-[LICENSE](https://github.com/alexgolec/schwab-py/blob/main/LICENSE) file for
+[LICENSE](LICENSE) file for
 details.
