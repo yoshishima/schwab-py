@@ -431,3 +431,13 @@ Price-history datetime bounds interpret naive datetimes as UTC and emit a
 instant across machines and upgrades; for example, attach the intended local
 zone with ``zoneinfo.ZoneInfo`` when constructing a market-local datetime.
 Timezone-aware bounds are converted to epoch milliseconds without a warning.
+
+
+Raw enum values and explicit query limits
+----------------------------------------
+
+Disabling enum enforcement allows raw API values, but members of an unrelated
+enum are still rejected. Iterable enum parameters treat a bare string as one
+value rather than a sequence of characters. Order queries forward any explicitly
+provided ``max_results``, including zero; omitting it leaves the API default in
+place. Forwarding a value does not guarantee that the API accepts it.

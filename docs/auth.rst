@@ -385,3 +385,17 @@ browser, you can easily copy that token file to another machine, such as your
 application in the cloud. However, make sure you don't use the same token on
 two machines. It is recommended to delete the token created on the
 browser-capable machine as soon as it is copied to its destination.
+
+
+Async refresh persistence
+-------------------------
+
+For async clients, the built-in token-file writer runs in a worker thread during
+refresh. Writes are serialized within each client's token metadata manager,
+and cancellation waits for an in-progress write to finish. Write errors
+propagate to the caller; in-memory token metadata retains the refreshed token.
+Initial token creation and loading remain synchronous.
+
+Custom synchronous token writers retain their existing event-loop-thread
+execution and should finish promptly. They are not automatically moved to a
+worker thread because they may depend on thread-local resources.

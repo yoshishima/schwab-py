@@ -560,3 +560,22 @@ would become zero raises ``ValueError``. Explicit string prices and prices set
 through ``copy_price`` or ``copy_stop_price`` are preserved. Orders with equity
 or mixed legs retain the existing formatting. Two-decimal formatting does not
 validate every contract's permitted price increments.
+
+
+Symbols and Decimal inputs
+--------------------------
+
+Equity and option legs require a nonblank string symbol. Symbols are preserved
+verbatim, including internal padding in option symbols.
+
+``Decimal`` prices are accepted by ``set_price`` and ``set_stop_price`` without
+the float deprecation warning and follow the same truncation rules. Decimal
+prices passed through ``copy_price`` or ``copy_stop_price`` retain all digits
+as strings. Nonfinite Decimal inputs are rejected.
+
+Decimal quantities are accepted, subject to the existing positive and
+whole-option-contract checks. At build time, integral values become integers;
+fractional values become floats only if their JSON decimal representation
+preserves the original value. Otherwise ``ValueError`` is raised instead of
+silently changing the quantity. Repeated orders reconstructed from JSON decoded
+with ``parse_float=Decimal`` use these same rules.
