@@ -20,7 +20,7 @@ import warnings
 import webbrowser
 
 from schwab.client import AsyncClient, Client
-from schwab.debug import register_redactions
+from schwab.debug import register_redactions, get_redacted_logger
 
 
 TOKEN_ENDPOINT = 'https://api.schwabapi.com/v1/oauth/token'
@@ -30,7 +30,7 @@ _CALLBACK_SERVER_POLL_INTERVAL = 0.1
 
 
 def get_logger():
-    return logging.getLogger(__name__)
+    return get_redacted_logger(__name__)
 
 
 def __make_update_token_func(token_path):

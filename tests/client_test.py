@@ -159,7 +159,7 @@ class _TestClient:
             self.client.get_account_numbers()
 
         response.json.assert_called_once_with()
-        register_redactions.assert_called_once_with(
+        register_redactions.assert_any_call(
                 {'accountNumber': '123456789'}, persistent=False)
 
 
@@ -173,7 +173,7 @@ class _TestClient:
             self.client.get_account_numbers()
 
         response.json.assert_not_called()
-        response_text.assert_called_once_with()
+        response_text.assert_not_called()
 
 
     def test_response_omitted_when_redaction_limit_reached(self):

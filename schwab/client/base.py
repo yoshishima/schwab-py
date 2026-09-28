@@ -11,12 +11,12 @@ import schwab
 
 from schwab.orders.generic import OrderBuilder
 
-from ..debug import register_redactions_from_response
+from ..debug import get_redacted_logger, register_redactions_from_response
 from ..utils import EnumEnforcer
 
 
 def get_logger():
-    return logging.getLogger(__name__)
+    return get_redacted_logger(__name__)
 
 
 class _ContextualValueEnum(Enum):
@@ -100,11 +100,17 @@ class BaseClient(EnumEnforcer, ABC):
         if not self.logger.isEnabledFor(logging.DEBUG):
             return
 
-        redaction_status = register_redactions_from_response(resp)
+        redaction_status = register_redactions_from_response(
+                resp, return_sanitized=True)
         if redaction_status is False:
             response_text = '<response omitted: redaction limit reached>'
+        elif redaction_status is None:
+            # Account balances, positions and other financial data do not
+            # necessarily have recognizable sensitive keys. Ordinary logging
+            # includes metadata only; payload capture requires explicit opt-in.
+            response_text = '<response body omitted>'
         else:
-            response_text = resp.text
+            response_text = redaction_status
         self.logger.debug('Req %s: response: %s, content=%s',
             req_num, resp.status_code, response_text)
 

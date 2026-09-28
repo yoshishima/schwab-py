@@ -14,7 +14,42 @@ _DEFAULT_MAX_LOG_CHARS = 10 * 1024 * 1024
 
 
 def get_logger():
-    return logging.getLogger(__name__)
+    return get_redacted_logger(__name__)
+
+
+class _RedactingFilter(logging.Filter):
+    def filter(self, record):
+        record.msg = schwab.LOG_REDACTOR.redact(record.getMessage())
+        record.args = ()
+        return True
+
+
+_REDACTING_FILTER = _RedactingFilter()
+
+
+def get_redacted_logger(name):
+    logger = logging.getLogger(name)
+    logger.addFilter(_REDACTING_FILTER)
+    return logger
+
+
+def redact_json(payload):
+    '''Sanitize structured payloads without retaining their values globally.'''
+    redactor = LogRedactor()
+    register_redactions(payload, redactor=redactor)
+    # Redact values before serialization as well as afterwards, so escaped
+    # quotes, backslashes and Unicode cannot bypass string replacement.
+    def sanitize(value):
+        if isinstance(value, dict):
+            return {key: sanitize(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        if str(value) in redactor.redacted_strings:
+            return redactor.redact(str(value))
+        if isinstance(value, str):
+            return redactor.redact(value)
+        return value
+    return schwab.LOG_REDACTOR.redact(json.dumps(sanitize(payload), indent=4))
 
 
 class LogRedactor:
@@ -92,7 +127,7 @@ class LogRedactor:
         return msg
 
 
-def register_redactions_from_response(resp):
+def register_redactions_from_response(resp, *, return_sanitized=False):
     '''
     Register sensitive values from a response before its body is logged.
 
@@ -110,10 +145,13 @@ def register_redactions_from_response(resp):
             close = getattr(payload, 'close', None)
             if close is not None:
                 close()
-            return True
-        return register_redactions(payload, persistent=False)
+            return '<response body omitted>' if return_sanitized else True
+        success = register_redactions(payload, persistent=False)
+        if return_sanitized and success:
+            return redact_json(payload)
+        return success
     except (json.decoder.JSONDecodeError, UnicodeDecodeError):
-        return True
+        return '<non-JSON response body omitted>' if return_sanitized else True
 
 
 def register_redactions(obj, key_path=None,
@@ -131,20 +169,22 @@ def register_redactions(obj, key_path=None,
                             'bidsizeinlong',
                             'bidsizeindouble',
                             'bidpriceindouble')),
-                        *, persistent=True):
+                        *, persistent=True, redactor=None):
     '''
     Recursively iterates through the leaf elements of ``obj`` and registers
     elements with keys matching a blacklist with the global ``Redactor``.
     '''
     if key_path is None:
         key_path = []
+    if redactor is None:
+        redactor = schwab.LOG_REDACTOR
 
     if isinstance(obj, list):
         for idx, value in enumerate(obj):
             key_path.append(str(idx))
             success = register_redactions(
                     value, key_path, bad_patterns, whitelisted,
-                    persistent=persistent)
+                    persistent=persistent, redactor=redactor)
             key_path.pop()
             if not success:
                 return False
@@ -153,7 +193,7 @@ def register_redactions(obj, key_path=None,
             key_path.append(key)
             success = register_redactions(
                     value, key_path, bad_patterns, whitelisted,
-                    persistent=persistent)
+                    persistent=persistent, redactor=redactor)
             key_path.pop()
             if not success:
                 return False
@@ -163,7 +203,7 @@ def register_redactions(obj, key_path=None,
             if last_key in whitelisted:
                 return True
             elif any(bad in last_key for bad in bad_patterns):
-                return schwab.LOG_REDACTOR.register(
+                return redactor.register(
                         obj, '-'.join(key_path), persistent=persistent)
     return True
 

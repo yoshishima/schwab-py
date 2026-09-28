@@ -7,12 +7,12 @@ import copy
 import httpx2 as httpx
 import inspect
 import json
-import logging
 import warnings
 
 from websockets.asyncio import client as ws_client
 
 from .utils import EnumEnforcer, LazyLog
+from .debug import get_redacted_logger, redact_json
 
 
 class StreamJsonDecoder(ABC):
@@ -31,7 +31,7 @@ class NaiveJsonStreamDecoder(StreamJsonDecoder):
 
 
 def get_logger():
-    return logging.getLogger(__name__)
+    return get_redacted_logger(__name__)
 
 
 class _BaseFieldEnum(Enum):
@@ -161,6 +161,7 @@ class StreamClient(EnumEnforcer):
         # ``json.loads``
         self.json_decoder = NaiveJsonStreamDecoder()
         self._send_lock = asyncio.Lock()
+        self._dispatch_lock = asyncio.Lock()
         self._message_waiters = deque()
         self._response_waiters = {}
         self._reader_task = None
@@ -189,21 +190,21 @@ class StreamClient(EnumEnforcer):
                 'Socket not open. Did you forget to call login()?')
 
         self.logger.debug('Send %s: Sending %s',
-                self.req_num(), LazyLog(lambda: json.dumps(obj, indent=4)))
+                self.req_num(), LazyLog(lambda: redact_json(obj)))
 
         await self._socket.send(json.dumps(obj))
 
-    async def _receive(self):
+    async def _receive(self, *, from_overflow=True):
         if self._socket is None:
             raise ValueError(
                 'Socket not open. Did you forget to call login()?')
 
-        if len(self._overflow_items) > 0:
-            ret = self._overflow_items.pop()
+        if from_overflow and self._overflow_items:
+            ret = self._overflow_items.popleft()
 
             self.logger.debug(
                 'Receive %s: Returning message from overflow: %s',
-                self.req_num(), LazyLog(lambda: json.dumps(ret, indent=4)))
+                self.req_num(), LazyLog(lambda: redact_json(ret)))
         else:
             raw = await self._socket.recv()
             try:
@@ -216,7 +217,7 @@ class StreamClient(EnumEnforcer):
 
             self.logger.debug(
                 'Receive %s: Returning message from stream: %s',
-                self.req_num(), LazyLog(lambda: json.dumps(ret, indent=4)))
+                self.req_num(), LazyLog(lambda: redact_json(ret)))
 
         return ret
 
@@ -368,23 +369,24 @@ class StreamClient(EnumEnforcer):
                     await socket.close()
 
     async def _reader_loop(self):
-        deferred_messages = deque()
         try:
             while True:
                 await self._reader_wakeup.wait()
 
                 while True:
-                    while deferred_messages:
-                        if not self._deliver_message(deferred_messages[0]):
+                    while self._overflow_items:
+                        if not self._deliver_message(self._overflow_items[0]):
                             break
-                        deferred_messages.popleft()
+                        self._overflow_items.popleft()
 
                     if (not self._response_waiters
                             and not self._has_message_waiters()):
                         self._reader_wakeup.clear()
                         break
 
-                    msg = await self._receive()
+                    # Read acknowledgements even when data is queued. A
+                    # cancelled consumer may restore older data during recv.
+                    msg = await self._receive(from_overflow=False)
 
                     if 'response' in msg:
                         response_request_id = int(
@@ -403,8 +405,7 @@ class StreamClient(EnumEnforcer):
                                     'Ignoring late response for request %s: '
                                     '%s',
                                     response_request_id,
-                                    LazyLog(lambda msg=msg: json.dumps(
-                                        msg, indent=4)))
+                                    LazyLog(lambda msg=msg: redact_json(msg)))
                         # Preserve the historical behavior for malformed or
                         # future response IDs: the sole request waiter receives
                         # the response and raises UnexpectedResponse during
@@ -413,10 +414,10 @@ class StreamClient(EnumEnforcer):
                             _, waiter = self._response_waiters.popitem()
                             if not waiter.done():
                                 waiter.set_result(msg)
-                        elif not self._deliver_message(msg):
-                            deferred_messages.append(msg)
-                    elif not self._deliver_message(msg):
-                        deferred_messages.append(msg)
+                        else:
+                            self._overflow_items.append(msg)
+                    else:
+                        self._overflow_items.append(msg)
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
@@ -429,7 +430,6 @@ class StreamClient(EnumEnforcer):
             self._response_waiters.clear()
             self._message_waiters.clear()
         finally:
-            self._overflow_items.extendleft(deferred_messages)
             self._reader_wakeup.clear()
             self._reader_task = None
 
@@ -545,10 +545,18 @@ class StreamClient(EnumEnforcer):
                     self._handler_slots.release()
 
     async def handle_message(self):
+        # Serialize delivery and dispatch so a cancelled consumer can restore
+        # its message before a later consumer starts dispatching newer data.
+        async with self._dispatch_lock:
+            await self._handle_message()
+
+    async def _handle_message(self):
         generation = self._connection_generation
         loop = asyncio.get_running_loop()
         waiter = loop.create_future()
         self._message_waiters.append(waiter)
+        if self._overflow_items:
+            self._deliver_message(self._overflow_items.popleft())
         self._ensure_reader()
 
         try:
@@ -564,7 +572,7 @@ class StreamClient(EnumEnforcer):
                 except BaseException:
                     pass
                 else:
-                    self._overflow_items.append(delivered_message)
+                    self._overflow_items.appendleft(delivered_message)
             try:
                 self._message_waiters.remove(waiter)
             except ValueError:
@@ -601,7 +609,7 @@ class StreamClient(EnumEnforcer):
                     self.logger.warning(
                             'Ignoring stream notification without a service: '
                             '%s',
-                            LazyLog(lambda entry=entry: json.dumps(entry, indent=4)))
+                            LazyLog(lambda entry=entry: redact_json(entry)))
                 msg.next_event += 1
                 msg.next_handler = 0
                 msg.handlers = None
@@ -610,7 +618,7 @@ class StreamClient(EnumEnforcer):
             # at the next uncalled handler instead of dropping it or repeating
             # handlers that already ran.
             if generation == self._connection_generation:
-                self._overflow_items.append(msg)
+                self._overflow_items.appendleft(msg)
             await self._stop_reader_if_idle()
             raise
 
