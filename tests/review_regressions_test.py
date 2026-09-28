@@ -119,7 +119,7 @@ class StreamLifecycleTest(unittest.IsolatedAsyncioTestCase):
 
     def buffer_messages(self, count):
         self.client._socket = self.socket()
-        self.client._overflow_items.extendleft([
+        self.client._overflow_items.extend([
             {'data': [{'service': 'CHART_EQUITY', 'sequence': index,
                        'content': [{'5': 123.45}]}]}
             for index in range(count)])
@@ -128,29 +128,36 @@ class StreamLifecycleTest(unittest.IsolatedAsyncioTestCase):
         self.buffer_messages(2)
         seen = []
         self.client.add_chart_equity_handler(lambda msg: seen.append(msg['sequence']))
-        consumer = asyncio.create_task(self.client.handle_message())
-        await asyncio.sleep(0)
-        asyncio.get_running_loop().call_soon(consumer.cancel)
-        with self.assertRaises(asyncio.CancelledError):
-            await consumer
+        messages = list(self.client._overflow_items)
+        self.client._overflow_items.clear()
+
+        async def deliver_and_cancel():
+            self.client._deliver_message(messages[0])
+            self.client._overflow_items.extend(messages[1:])
+            consumer.cancel()
+
+        with patch.object(self.client, '_reader_loop', deliver_and_cancel):
+            consumer = asyncio.create_task(self.client.handle_message())
+            with self.assertRaises(asyncio.CancelledError):
+                await consumer
         await self.client.handle_message()
         await self.client.handle_message()
         self.assertEqual(seen, [0, 1])
 
     async def test_cancelled_delivery_is_not_restored_after_disconnect(self):
         self.buffer_messages(1)
-        consumer = asyncio.create_task(self.client.handle_message())
-        await asyncio.sleep(0)
+        message = self.client._overflow_items.popleft()
 
         async def disconnect_and_cancel():
+            self.client._deliver_message(message)
             consumer.cancel()
             await self.client._close_connection()
 
         # Run cleanup immediately after the reader has delivered the message.
-        cleanup = asyncio.create_task(disconnect_and_cancel())
-        with self.assertRaises(asyncio.CancelledError):
-            await consumer
-        await cleanup
+        with patch.object(self.client, '_reader_loop', disconnect_and_cancel):
+            consumer = asyncio.create_task(self.client.handle_message())
+            with self.assertRaises(asyncio.CancelledError):
+                await consumer
         self.assertFalse(self.client._overflow_items)
 
     async def test_slow_handlers_apply_backpressure_before_task_creation(self):

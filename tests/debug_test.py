@@ -82,6 +82,60 @@ class RedactorTest(unittest.TestCase):
         self.assertFalse(redactor.transient_limit_reached)
 
 
+class OrdinaryLoggingTest(unittest.TestCase):
+    def test_response_bodies_are_omitted_from_root_handler(self):
+        session = Mock()
+        client = Client('test-api-key', session)
+        response = MockResponse({
+            'accountNumber': 'private-account',
+            'currentBalances': {'cashBalance': 987654.32},
+        }, 200)
+        with patch('schwab.debug._BUG_REPORT_LOGGING_ACTIVE', 0), \
+                patch.object(client.logger, 'level', logging.DEBUG), \
+                self.assertLogs(level='DEBUG') as logs:
+            client._log_response(response, 1)
+        output = '\n'.join(logs.output)
+        self.assertNotIn('private-account', output)
+        self.assertNotIn('987654.32', output)
+        self.assertIn('response body omitted', output)
+
+    def test_bug_report_redacts_before_propagating_to_root(self):
+        client = Client('test-api-key', Mock())
+        secret = 'private-"account\\\u00e9'
+        response = MockResponse({'accountNumber': secret}, 200)
+        with patch.object(schwab, 'LOG_REDACTOR', schwab.debug.LogRedactor()):
+            writer = schwab.debug._enable_bug_report_logging(output=io.StringIO())
+            try:
+                with self.assertLogs(level='DEBUG') as logs:
+                    client._log_response(response, 1)
+                output = '\n'.join(logs.output)
+                self.assertNotIn(secret, output)
+                self.assertNotIn(json.dumps(secret), output)
+                self.assertIn('REDACTED', output)
+            finally:
+                writer()
+
+    def test_registered_secrets_redacted_before_root_handler(self):
+        with patch.object(schwab, 'LOG_REDACTOR', schwab.debug.LogRedactor()):
+            schwab.LOG_REDACTOR.register('private-token', 'TOKEN')
+            logger = schwab.debug.get_redacted_logger('schwab.test')
+            with self.assertLogs(level='DEBUG') as logs:
+                logger.debug('Credential: %s', 'private-token')
+            self.assertNotIn('private-token', '\n'.join(logs.output))
+            self.assertEqual((), logs.records[0].args)
+
+    def test_structured_redaction_does_not_mutate_or_retain_payload(self):
+        payload = {'Authorization': 'private-token',
+                   'nested': {'accountNumber': 987654321}}
+        with patch.object(schwab, 'LOG_REDACTOR', schwab.debug.LogRedactor()):
+            output = schwab.debug.redact_json(payload)
+            self.assertNotIn('private-token', output)
+            self.assertNotIn('987654321', output)
+            self.assertEqual('private-token', payload['Authorization'])
+            self.assertEqual(987654321, payload['nested']['accountNumber'])
+            self.assertFalse(schwab.LOG_REDACTOR.redacted_strings)
+
+
 class RegisterRedactionsTest(unittest.TestCase):
 
     def setUp(self):

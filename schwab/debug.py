@@ -132,7 +132,9 @@ def register_redactions_from_response(resp, *, return_sanitized=False):
     Register sensitive values from a response before its body is logged.
 
     Both successful and error responses are inspected because Schwab may echo
-    account identifiers in an error payload. Non-JSON responses are ignored.
+    account identifiers in an error payload. With ``return_sanitized``, return
+    the sanitized JSON text (or an omission marker for non-JSON responses).
+    Return None when capture is disabled and False when its limit is reached.
     '''
     if not _BUG_REPORT_LOGGING_ACTIVE:
         return None
@@ -172,7 +174,8 @@ def register_redactions(obj, key_path=None,
                         *, persistent=True, redactor=None):
     '''
     Recursively iterates through the leaf elements of ``obj`` and registers
-    elements with keys matching a blacklist with the global ``Redactor``.
+    elements with keys matching a blacklist with the supplied ``Redactor``
+    (or the global redactor by default).
     '''
     if key_path is None:
         key_path = []

@@ -171,6 +171,10 @@ timeouts for external I/O.
 
 If a capacity wait is canceled, the next ``handle_message()`` call resumes the
 message at its next uncalled handler. Handlers already invoked are not repeated.
+Restored messages are dispatched before newer queued messages, including while
+a subscription is waiting for its acknowledgement. Concurrent calls to
+``handle_message()`` serialize message delivery and handler dispatch to preserve
+this order. Asynchronous handler completion order remains independent.
 
 Logout and reconnect cancel pending handler tasks from the previous connection.
 Handlers should release their resources when canceled and propagate

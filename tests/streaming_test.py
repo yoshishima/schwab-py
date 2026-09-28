@@ -5883,6 +5883,100 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_cancelled_delivery_precedes_buffered_subscription_data(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        incoming = asyncio.Queue()
+
+        async def receive():
+            item = await incoming.get()
+            incoming.task_done()
+            return json.dumps(item)
+
+        socket.recv.side_effect = receive
+        subscription = asyncio.create_task(self.client.chart_equity_subs(['GOOG']))
+        await self.wait_for_response_waiter(1)
+        older = self.streaming_entry('CHART_EQUITY', 'SUBS', [{'msg': 'older'}])
+        newer = self.streaming_entry('CHART_EQUITY', 'SUBS', [{'msg': 'newer'}])
+        handler = Mock()
+        self.client.add_chart_equity_handler(handler)
+        consumer = asyncio.create_task(self.client.handle_message())
+        await asyncio.sleep(0)
+        deliver = self.client._deliver_message
+
+        def cancel_after_delivery(message):
+            delivered = deliver(message)
+            if delivered:
+                consumer.cancel()
+            return delivered
+
+        with patch.object(self.client, '_deliver_message', cancel_after_delivery):
+            incoming.put_nowait(older)
+            incoming.put_nowait(newer)
+            with self.assertRaises(asyncio.CancelledError):
+                await consumer
+            await asyncio.wait_for(incoming.join(), 1)
+
+        # The reader remains blocked on recv awaiting the subscription reply.
+        # Restored data must be available without another socket message.
+        await asyncio.wait_for(self.client.handle_message(), 1)
+        await asyncio.wait_for(self.client.handle_message(), 1)
+        self.assertEqual(handler.call_args_list,
+                         [call(older['data'][0]), call(newer['data'][0])])
+        incoming.put_nowait(self.success_response(1, 'CHART_EQUITY', 'SUBS'))
+        await asyncio.wait_for(subscription, 1)
+        await self.client._stop_reader()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_repeated_timeouts_resume_partial_dispatch_in_order(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        incoming = asyncio.Queue()
+
+        async def receive():
+            item = await incoming.get()
+            incoming.task_done()
+            return json.dumps(item)
+
+        socket.recv.side_effect = receive
+        self.client._handler_slots = asyncio.Semaphore(1)
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_handler(message):
+            started.set()
+            await release.wait()
+
+        handler = Mock()
+        self.client.add_chart_equity_handler(slow_handler)
+        self.client.add_chart_equity_handler(handler)
+        subscription = asyncio.create_task(self.client.chart_equity_subs(['GOOG']))
+        await self.wait_for_response_waiter(1)
+        older = self.streaming_entry('CHART_EQUITY', 'SUBS', [{'msg': 'older'}])
+        newer = self.streaming_entry('CHART_EQUITY', 'SUBS', [{'msg': 'newer'}])
+        consumer = asyncio.create_task(self.client.handle_message())
+        incoming.put_nowait(older)
+        await asyncio.wait_for(started.wait(), 1)
+        incoming.put_nowait(newer)
+        await asyncio.wait_for(incoming.join(), 1)
+        # Both consumers time out, including one waiting behind the dispatcher.
+        concurrent = asyncio.create_task(self.client.handle_message())
+        for task in (consumer, concurrent):
+            with self.assertRaises(TimeoutError):
+                await asyncio.wait_for(task, 0.01)
+        handler.assert_not_called()
+        release.set()
+        await asyncio.wait_for(self.client.handle_message(), 1)
+        await asyncio.wait_for(self.client.handle_message(), 1)
+        self.assertEqual(handler.call_args_list,
+                         [call(older['data'][0]), call(newer['data'][0])])
+        incoming.put_nowait(self.success_response(1, 'CHART_EQUITY', 'SUBS'))
+        await asyncio.wait_for(subscription, 1)
+        await self.client._stop_reader()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_late_success_response_does_not_interrupt_messages(
             self, ws_connect):
         socket = await self.login_and_get_socket(ws_connect)
@@ -6232,3 +6326,17 @@ class StreamClientTest(IsolatedAsyncioTestCase):
                 'fields': '1,2,5,14,36'
             }
         })
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_login_debug_logs_redact_credentials_before_root_handler(
+            self, ws_connect):
+        with patch.object(schwab, 'LOG_REDACTOR', schwab.debug.LogRedactor()), \
+                patch('schwab.debug._BUG_REPORT_LOGGING_ACTIVE', 0), \
+                self.assertLogs(level='DEBUG') as logs:
+            await self.login_and_get_socket(ws_connect)
+        output = '\n'.join(logs.output)
+        self.assertNotIn(ACCESS_TOKEN, output)
+        self.assertNotIn(self.pref_customer_id, output)
+        self.assertIn('REDACTED', output)
+        await self.client._stop_reader()

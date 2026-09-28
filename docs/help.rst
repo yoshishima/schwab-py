@@ -95,6 +95,11 @@ Sometimes, this additional logging is enough to help you debug. Before you ask
 for help, carefully read through your logs to see if there's anything there that 
 helps you.
 
+Ordinary DEBUG logging omits HTTP response bodies, which can contain account
+balances and positions. Stream payloads redact recognized sensitive fields,
+including login credentials, before reaching logging handlers. Registered
+secrets are also redacted before records propagate to application handlers.
+
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Gather Logs For Your Bug Report
@@ -109,6 +114,11 @@ console when the program exits. You can enable this by calling this method
 .. code-block:: python
 
   schwab.debug.enable_bug_report_logging()
+
+Bug-report logging opts into HTTP response bodies. JSON bodies are sanitized
+before reaching either the bug-report recorder or ordinary application handlers;
+non-JSON bodies are omitted. Financial details that are not recognized as secret
+fields can remain in these explicitly enabled diagnostics.
 
 This method will redact the logs to scrub them of common secrets, like account 
 IDs, tokens, access keys, etc. However, this redaction is not guaranteed to be 
