@@ -234,3 +234,14 @@ subject to your composite order rules.
 
 .. autofunction:: schwab.orders.common.one_cancels_other
 .. autofunction:: schwab.orders.common.first_triggers_second
+
+
+Vertical template validation
+----------------------------
+
+When both leg symbols can be parsed by ``OptionSymbol.parse_symbol``, all
+vertical open and close templates require matching underlyings and expirations,
+the appropriate call or put contract type, and a strictly lower strike for the
+first argument. Bull templates take the long leg first; bear templates take the
+short leg first. A mismatch raises ``ValueError``. If either symbol cannot be
+parsed, these checks are skipped to preserve support for opaque symbols.

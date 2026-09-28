@@ -12,12 +12,30 @@ import httpx2 as httpx
 def _is_finite_number(value):
     return (
         not isinstance(value, bool)
-        and isinstance(value, (int, float))
+        and isinstance(value, (int, float, Decimal))
         and (not isinstance(value, float) or math.isfinite(value))
+        and (not isinstance(value, Decimal) or value.is_finite())
     )
 
 
+def _copy_price_value(value):
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError('price must be finite')
+        return format(value, 'f')
+    return value
+
+
 def _build_object(obj):
+    if isinstance(obj, Decimal):
+        if not obj.is_finite():
+            raise ValueError('numeric values must be finite')
+        if obj == int(obj):
+            return int(obj)
+        value = float(obj)
+        if not math.isfinite(value) or Decimal(str(value)) != obj:
+            raise ValueError('Decimal cannot be represented as a JSON number without loss')
+        return value
     # Literals are passed straight through
     if isinstance(obj, str) or isinstance(obj, int) or isinstance(obj, float):
         return obj
@@ -51,6 +69,11 @@ def truncate_float(flt):
     warnings.warn('passing floats to set_price and set_stop_price is '+
                   'deprecated and will be removed soon. Please update your '+
                   'code to pass prices as strings instead.')
+
+    return _format_numeric_price(flt)
+
+
+def _format_numeric_price(flt):
 
     value = Decimal(str(flt))
     if not value.is_finite():
@@ -259,7 +282,9 @@ class OrderBuilder(EnumEnforcer):
             self._stopPrice = stop_price
             self._numeric_prices.discard('stopPrice')
         else:
-            self._stopPrice = truncate_float(stop_price)
+            self._stopPrice = (_format_numeric_price(stop_price)
+                               if isinstance(stop_price, Decimal)
+                               else truncate_float(stop_price))
             self._numeric_prices.add('stopPrice')
         return self
 
@@ -268,7 +293,7 @@ class OrderBuilder(EnumEnforcer):
         Directly set the stop price, avoiding all the validation and truncation
         logic from :func:`set_stop_price`.
         '''
-        self._stopPrice = stop_price
+        self._stopPrice = _copy_price_value(stop_price)
         self._numeric_prices.discard('stopPrice')
         return self
 
@@ -396,7 +421,8 @@ class OrderBuilder(EnumEnforcer):
             self._price = price
             self._numeric_prices.discard('price')
         else:
-            self._price = truncate_float(price)
+            self._price = (_format_numeric_price(price)
+                           if isinstance(price, Decimal) else truncate_float(price))
             self._numeric_prices.add('price')
         return self
 
@@ -405,7 +431,7 @@ class OrderBuilder(EnumEnforcer):
         Directly set the stop price, avoiding all the validation and truncation
         logic from :func:`set_price`.
         '''
-        self._price = price
+        self._price = _copy_price_value(price)
         self._numeric_prices.discard('price')
         return self
 
@@ -510,6 +536,8 @@ class OrderBuilder(EnumEnforcer):
     def __add_order_leg(self, instruction, instrument, quantity):
         # instruction is assumed to have been verified
 
+        if not isinstance(instrument._symbol, str) or not instrument._symbol.strip():
+            raise ValueError('symbol must be a non-empty string')
         if not _is_finite_number(quantity) or quantity <= 0:
             raise ValueError('quantity must be positive and finite')
 

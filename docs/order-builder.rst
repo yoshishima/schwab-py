@@ -313,6 +313,12 @@ which involves some truncation logic:
  * For all other values, truncate to two decimal places. The above example would 
    become `0.18`. 
 
+Float values within ``1e-9`` of a nonzero increment at the applicable precision
+are snapped to that increment before truncation to account for arithmetic noise.
+For example, ``(10.1 + 10.2) / 2`` becomes ``10.15``, while ``19.9999999``
+still becomes ``19.99``. Nonzero numeric prices that would truncate to zero
+raise ``ValueError``. Explicit zero prices remain supported.
+
 This behavior is meant as a sane heuristic, and there are almost certainly 
 situations where it is not the correct thing to do. You can sidestep this entire 
 process by passing your price as a string, although be forewarned that Schwab 
@@ -539,3 +545,18 @@ these fields at their own risk.
 
 .. automethod:: schwab.orders.generic.OrderBuilder.set_activation_price
 .. automethod:: schwab.orders.generic.OrderBuilder.clear_activation_price
+
+
+Option price and quantity validation
+------------------------------------
+
+Option legs require positive whole-number quantities. Integral floats such as
+``2.0`` remain supported. Equity legs retain their existing quantity behavior.
+
+When every leg is an option, numeric limit and stop prices are truncated to two
+decimal places at build time, regardless of whether prices or legs were set
+first. This also applies to nested child builders. A nonzero option price that
+would become zero raises ``ValueError``. Explicit string prices and prices set
+through ``copy_price`` or ``copy_stop_price`` are preserved. Orders with equity
+or mixed legs retain the existing formatting. Two-decimal formatting does not
+validate every contract's permitted price increments.

@@ -331,7 +331,7 @@ class BaseClient(EnumEnforcer, ABC):
                 'to_entered_datetime', to_entered_datetime, end_bound=True),
         }
 
-        if max_results:
+        if max_results is not None:
             params['maxResults'] = max_results
 
         if status:

@@ -1,6 +1,7 @@
 from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
 
 import collections
+import asyncio as asyncio_module
 import contextlib
 import httpx2 as httpx
 import json
@@ -63,6 +64,7 @@ def __make_update_token_func(token_path):
             except FileNotFoundError:
                 pass
             raise
+    update_token._schwab_file_writer = True
     return update_token
 
 
@@ -141,6 +143,32 @@ class TokenMetadata:
                 self.wrap_token_in_metadata(token), *args, **kwargs)
 
         return wrapped_token_write_func
+
+    def async_wrapped_token_write_func(self):
+        '''Serialize refresh persistence; offload the built-in file writer only.'''
+        lock = asyncio_module.Lock()
+
+        async def write(token, *args, **kwargs):
+            async with lock:
+                self.token = token
+                writer = self.unwrapped_token_write_func
+                payload = self.wrap_token_in_metadata(token)
+                if getattr(writer, '_schwab_file_writer', False) is True:
+                    await asyncio_module.to_thread(writer, payload, *args, **kwargs)
+                else:
+                    writer(payload, *args, **kwargs)
+
+        async def update_token(token, *args, **kwargs):
+            # A canceled refresh must not leave an older file write racing a
+            # later refresh. Finish persistence before releasing its lock.
+            task = asyncio_module.create_task(write(token, *args, **kwargs))
+            try:
+                await asyncio_module.shield(task)
+            except asyncio_module.CancelledError:
+                await asyncio_module.shield(task)
+                raise
+
+        return update_token
 
     def wrap_token_in_metadata(self, token):
         return {
@@ -632,8 +660,7 @@ def client_from_access_functions(api_key, app_secret, token_read_func,
     wrapped_token_write_func = metadata.wrapped_token_write_func()
 
     if asyncio:
-        async def oauth_client_update_token(t, *args, **kwargs):
-            wrapped_token_write_func(t, *args, **kwargs)  # pragma: no cover
+        oauth_client_update_token = metadata.async_wrapped_token_write_func()
         session_class = AsyncOAuth2Client
         client_class = AsyncClient
     else:
@@ -697,8 +724,7 @@ def client_from_received_url(
     # synchronous one, the asynchronous requires an async one. The
     # oauth_client_update_token variable will contain the appropriate one.
     if asyncio:
-        async def oauth_client_update_token(t, *args, **kwargs):
-            token_write_func(t, *args, **kwargs)  # pragma: no cover
+        oauth_client_update_token = metadata_manager.async_wrapped_token_write_func()
         session_class = AsyncOAuth2Client
         client_class = AsyncClient
     else:

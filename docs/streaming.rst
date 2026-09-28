@@ -188,6 +188,17 @@ Handlers should release their resources when canceled and propagate
 is allowed to finish. Each handler runs independently, so completion order is
 not guaranteed for asynchronous handlers.
 
+
+Handler registrations survive ``logout()`` and ``login()``. Adding the same
+callable to the same service again has no effect, including repeated access to
+a bound method. Newly created lambdas or callable instances are distinct handlers.
+Use ``clear_handlers()`` to remove all registrations, or
+``clear_handlers('ACCT_ACTIVITY')`` to clear one wire service. Clearing affects
+future dispatch snapshots; it does not cancel running handlers or change a
+message whose dispatch has already started.
+
+.. automethod:: schwab.streaming.StreamClient.clear_handlers
+
 Handlers should take a single argument representing the stream message received:
 
 .. code-block:: python
@@ -577,3 +588,22 @@ Account Activity
 .. autoclass:: schwab.streaming::StreamClient.AccountActivityFields
   :members:
   :undoc-members:
+
+
+Malformed messages and buffer limits
+------------------------------------
+
+Invalid JSON is delivered as ``UnparsableMessage`` by ``handle_message()`` in
+message order. It does not fail pending subscription acknowledgements; the
+reader continues processing the connection. Data and notification entries
+without a valid service are logged and skipped individually.
+
+``StreamClient(max_pending_messages=1000)`` limits queued incoming messages,
+including parse-error markers, while acknowledgements are outstanding. The
+limit must be a positive integer. Handler-task backpressure is separate from
+this buffer. Acknowledgements can still be read when the buffer is exactly full.
+If another message would exceed the limit, pending callers receive
+``StreamBufferOverflowError`` (a ``StreamClosedError``), the connection closes,
+and buffered messages are discarded. Reconnect, resubscribe, and reconcile
+application state after this error. A message already being dispatched is
+additional to this limit and may be restored to the queue on cancellation.

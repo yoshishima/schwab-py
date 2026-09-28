@@ -2,6 +2,7 @@
 module.'''
 
 import re
+from enum import Enum
 
 
 def class_fullname(o):
@@ -41,7 +42,7 @@ class EnumEnforcer:
 
         if isinstance(value, required_enum_type):
             return value.value
-        elif self.enforce_enums:
+        elif isinstance(value, Enum) or self.enforce_enums:
             self.type_error(value, required_enum_type)
         else:
             return value
@@ -53,11 +54,14 @@ class EnumEnforcer:
         if isinstance(iterable, required_enum_type):
             return [iterable.value]
 
+        if isinstance(iterable, (str, Enum)):
+            iterable = [iterable]
+
         values = []
         for value in iterable:
             if isinstance(value, required_enum_type):
                 values.append(value.value)
-            elif self.enforce_enums:
+            elif isinstance(value, Enum) or self.enforce_enums:
                 self.type_error(value, required_enum_type)
             else:
                 values.append(value)
