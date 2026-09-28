@@ -308,6 +308,26 @@ def option_sell_to_close_limit(symbol, quantity, price):
 ################################################################################
 # Verticals
 
+def _validate_vertical(first_symbol, second_symbol, contract_type):
+    # All templates take the lower-strike leg first. Preserve support for
+    # opaque symbols, which cannot be checked locally.
+    if not isinstance(first_symbol, str) or not isinstance(second_symbol, str):
+        return
+    try:
+        first = OptionSymbol.parse_symbol(first_symbol)
+        second = OptionSymbol.parse_symbol(second_symbol)
+    except ValueError:
+        return
+    if first.contract_type != contract_type or second.contract_type != contract_type:
+        raise ValueError('vertical legs have the wrong contract type')
+    if first.underlying_symbol != second.underlying_symbol:
+        raise ValueError('vertical legs must have matching underlyings')
+    if first.expiration_date != second.expiration_date:
+        raise ValueError('vertical legs must have matching expirations')
+    if Decimal(first.strike_price) >= Decimal(second.strike_price):
+        raise ValueError('first vertical leg must have a lower strike than second')
+
+
 # Bull Call
 
 def bull_call_vertical_open(
@@ -318,6 +338,8 @@ def bull_call_vertical_open(
     '''
     from schwab.orders.common import OptionInstruction, OrderType, OrderStrategyType
     from schwab.orders.common import ComplexOrderStrategyType
+
+    _validate_vertical(long_call_symbol, short_call_symbol, 'C')
 
     return (__base_builder()
             .set_order_type(OrderType.NET_DEBIT)
@@ -339,6 +361,8 @@ def bull_call_vertical_close(
     '''
     from schwab.orders.common import OptionInstruction, OrderType, OrderStrategyType
     from schwab.orders.common import ComplexOrderStrategyType
+
+    _validate_vertical(long_call_symbol, short_call_symbol, 'C')
 
     return (__base_builder()
             .set_order_type(OrderType.NET_CREDIT)
@@ -363,6 +387,8 @@ def bear_call_vertical_open(
     from schwab.orders.common import OptionInstruction, OrderType, OrderStrategyType
     from schwab.orders.common import ComplexOrderStrategyType
 
+    _validate_vertical(short_call_symbol, long_call_symbol, 'C')
+
     return (__base_builder()
             .set_order_type(OrderType.NET_CREDIT)
             .set_complex_order_strategy_type(ComplexOrderStrategyType.VERTICAL)
@@ -383,6 +409,8 @@ def bear_call_vertical_close(
     '''
     from schwab.orders.common import OptionInstruction, OrderType, OrderStrategyType
     from schwab.orders.common import ComplexOrderStrategyType
+
+    _validate_vertical(short_call_symbol, long_call_symbol, 'C')
 
     return (__base_builder()
             .set_order_type(OrderType.NET_DEBIT)
@@ -407,6 +435,8 @@ def bull_put_vertical_open(
     from schwab.orders.common import OptionInstruction, OrderType, OrderStrategyType
     from schwab.orders.common import ComplexOrderStrategyType
 
+    _validate_vertical(long_put_symbol, short_put_symbol, 'P')
+
     return (__base_builder()
             .set_order_type(OrderType.NET_CREDIT)
             .set_complex_order_strategy_type(ComplexOrderStrategyType.VERTICAL)
@@ -427,6 +457,8 @@ def bull_put_vertical_close(
     '''
     from schwab.orders.common import OptionInstruction, OrderType, OrderStrategyType
     from schwab.orders.common import ComplexOrderStrategyType
+
+    _validate_vertical(long_put_symbol, short_put_symbol, 'P')
 
     return (__base_builder()
             .set_order_type(OrderType.NET_DEBIT)
@@ -451,6 +483,8 @@ def bear_put_vertical_open(
     from schwab.orders.common import OptionInstruction, OrderType, OrderStrategyType
     from schwab.orders.common import ComplexOrderStrategyType
 
+    _validate_vertical(short_put_symbol, long_put_symbol, 'P')
+
     return (__base_builder()
             .set_order_type(OrderType.NET_DEBIT)
             .set_complex_order_strategy_type(ComplexOrderStrategyType.VERTICAL)
@@ -471,6 +505,8 @@ def bear_put_vertical_close(
     '''
     from schwab.orders.common import OptionInstruction, OrderType, OrderStrategyType
     from schwab.orders.common import ComplexOrderStrategyType
+
+    _validate_vertical(short_put_symbol, long_put_symbol, 'P')
 
     return (__base_builder()
             .set_order_type(OrderType.NET_CREDIT)

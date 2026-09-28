@@ -736,7 +736,7 @@ class _TestClient:
             params={
                 'types': ','.join(t.value for t in self.client.Transactions.TransactionType),
                 'startDate': NOW_DATETIME_MINUS_60_DAYS_ISO,
-                'endDate': NOW_DATETIME_TRUNCATED_ISO})
+                'endDate': '2020-01-03T00:00:00.000Z'})
 
 
     # get_transaction
@@ -879,6 +879,7 @@ class _TestClient:
         self.mock_session.get.assert_called_once_with(
             self.make_url('/marketdata/v1/pricehistory'), params={
                 'symbol': SYMBOL,
+                'periodType': 'day',
                 'period': 10})
 
     
@@ -917,6 +918,7 @@ class _TestClient:
         self.mock_session.get.assert_called_once_with(
         self.make_url('/marketdata/v1/pricehistory'), params={
             'symbol': SYMBOL,
+                'frequencyType': 'minute',
             'frequency': 5})
 
 

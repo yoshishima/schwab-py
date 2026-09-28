@@ -633,6 +633,24 @@ class StreamClient(EnumEnforcer):
     ##########################################################################
     # LOGIN
 
+    def _add_handler(self, service, handler):
+        # Equality also recognizes repeated access to the same bound method.
+        if not any(existing._func == handler._func
+                   for existing in self._handlers[service]):
+            self._handlers[service].append(handler)
+
+    def clear_handlers(self, service=None):
+        """Remove registered handlers for a service, or all services if omitted.
+
+        Use wire service names such as ``ACCT_ACTIVITY``. Already running
+        handlers and dispatch snapshots are unaffected. Registrations otherwise
+        survive logout and login.
+        """
+        if service is None:
+            self._handlers.clear()
+        else:
+            self._handlers.pop(service, None)
+
     async def login(self, websocket_connect_args=None):
         '''
         `Official Documentation <https://developer.tdameritrade.com/content/
@@ -761,7 +779,7 @@ class StreamClient(EnumEnforcer):
         Adds a handler to the account activity subscription. See
         :ref:`registering_handlers` for details.
         '''
-        self._handlers['ACCT_ACTIVITY'].append(_Handler(handler,
+        self._add_handler('ACCT_ACTIVITY', _Handler(handler,
                                                         self.AccountActivityFields))
 
     ##########################################################################
@@ -847,7 +865,7 @@ class StreamClient(EnumEnforcer):
         Adds a handler to the equity chart subscription. See
         :ref:`registering_handlers` for details.
         '''
-        self._handlers['CHART_EQUITY'].append(_Handler(handler,
+        self._add_handler('CHART_EQUITY', _Handler(handler,
                                                        self.ChartEquityFields))
 
     ##########################################################################
@@ -929,7 +947,7 @@ class StreamClient(EnumEnforcer):
         Adds a handler to the futures chart subscription. See
         :ref:`registering_handlers` for details.
         '''
-        self._handlers['CHART_FUTURES'].append(_Handler(handler,
+        self._add_handler('CHART_FUTURES', _Handler(handler,
                                                         self.ChartFuturesFields))
 
     ##########################################################################
@@ -1152,7 +1170,7 @@ class StreamClient(EnumEnforcer):
         Register a function to handle level one equity quotes as they are sent.
         See :ref:`registering_handlers` for details.
         '''
-        self._handlers['LEVELONE_EQUITIES'].append(
+        self._add_handler('LEVELONE_EQUITIES',
                 _Handler(handler, self.LevelOneEquityFields))
 
     ##########################################################################
@@ -1387,7 +1405,7 @@ class StreamClient(EnumEnforcer):
         Register a function to handle level one options quotes as they are sent.
         See :ref:`registering_handlers` for details.
         '''
-        self._handlers['LEVELONE_OPTIONS'].append(
+        self._add_handler('LEVELONE_OPTIONS',
                 _Handler(handler, self.LevelOneOptionFields))
 
     ##########################################################################
@@ -1575,7 +1593,7 @@ class StreamClient(EnumEnforcer):
         Register a function to handle level one futures quotes as they are sent.
         See :ref:`registering_handlers` for details.
         '''
-        self._handlers['LEVELONE_FUTURES'].append(
+        self._add_handler('LEVELONE_FUTURES',
             _Handler(handler, self.LevelOneFuturesFields))
 
     ##########################################################################
@@ -1731,7 +1749,7 @@ class StreamClient(EnumEnforcer):
         Register a function to handle level one forex quotes as they are sent.
         See :ref:`registering_handlers` for details.
         '''
-        self._handlers['LEVELONE_FOREX'].append(_Handler(handler,
+        self._add_handler('LEVELONE_FOREX', _Handler(handler,
                                                          self.LevelOneForexFields))
 
     ##########################################################################
@@ -1892,7 +1910,7 @@ class StreamClient(EnumEnforcer):
         Register a function to handle level one futures options quotes as they
         are sent. See :ref:`registering_handlers` for details.
         '''
-        self._handlers['LEVELONE_FUTURES_OPTIONS'].append(
+        self._add_handler('LEVELONE_FUTURES_OPTIONS',
             _Handler(handler, self.LevelOneFuturesOptionsFields))
 
     ##########################################################################
@@ -1991,7 +2009,7 @@ class StreamClient(EnumEnforcer):
         Register a function to handle level two NYSE book data as it is updated
         See :ref:`registering_handlers` for details.
         '''
-        self._handlers['NYSE_BOOK'].append(
+        self._add_handler('NYSE_BOOK',
             self._BookHandler(handler, self.BookFields))
 
     ##########################################################################
@@ -2028,7 +2046,7 @@ class StreamClient(EnumEnforcer):
         Register a function to handle level two NASDAQ book data as it is
         updated See :ref:`registering_handlers` for details.
         '''
-        self._handlers['NASDAQ_BOOK'].append(
+        self._add_handler('NASDAQ_BOOK',
             self._BookHandler(handler, self.BookFields))
 
     ##########################################################################
@@ -2065,7 +2083,7 @@ class StreamClient(EnumEnforcer):
         Register a function to handle level two options book data as it is
         updated See :ref:`registering_handlers` for details.
         '''
-        self._handlers['OPTIONS_BOOK'].append(
+        self._add_handler('OPTIONS_BOOK',
             self._BookHandler(handler, self.BookFields))
 
     ##########################################################################
@@ -2116,7 +2134,7 @@ class StreamClient(EnumEnforcer):
         Register a function to handle Screener Equity data as it is
         updated See :ref:`registering_handlers` for details.
         '''
-        self._handlers['SCREENER_EQUITY'].append(
+        self._add_handler('SCREENER_EQUITY',
             _Handler(handler, self.ScreenerFields))
 
     async def screener_option_subs(self, symbols):
@@ -2148,5 +2166,5 @@ class StreamClient(EnumEnforcer):
         Register a function to handle Screener Option data as it is
         updated See :ref:`registering_handlers` for details.
         '''
-        self._handlers['SCREENER_OPTION'].append(
+        self._add_handler('SCREENER_OPTION',
             _Handler(handler, self.ScreenerFields))

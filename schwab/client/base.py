@@ -37,6 +37,7 @@ class _ContextualValueEnum(Enum):
         obj = object.__new__(cls)
         obj._value_ = (context, api_value)
         obj._api_value = api_value
+        obj.context = context
         return obj
 
     @property
@@ -150,11 +151,13 @@ class BaseClient(EnumEnforcer, ABC):
                 "value of '{}' must be either True or False".format(name))
         return value
 
-    def _format_date_as_iso(self, var_name, dt):
-        '''Formats datetime or date objects as yyyy-MM-dd'T'HH:mm:ss.SSSZ'''
+    def _format_date_as_iso(self, var_name, dt, *, end_bound=False):
+        '''Format in UTC; date-only end bounds advance to the next midnight.'''
         self._assert_type(var_name, dt, [self._DATE, self._DATETIME])
 
         if not isinstance(dt, self._DATETIME):
+            if end_bound:
+                dt = dt + datetime.timedelta(days=1)
             dt = datetime.datetime(
                     year=dt.year, month=dt.month, day=dt.day,
                     tzinfo=datetime.timezone.utc)
@@ -320,7 +323,7 @@ class BaseClient(EnumEnforcer, ABC):
             'fromEnteredTime': self._format_date_as_iso(
                 'from_entered_datetime', from_entered_datetime),
             'toEnteredTime': self._format_date_as_iso(
-                'to_entered_datetime', to_entered_datetime),
+                'to_entered_datetime', to_entered_datetime, end_bound=True),
         }
 
         if max_results:
@@ -499,7 +502,7 @@ class BaseClient(EnumEnforcer, ABC):
             end_date = self._format_date_as_iso(
                     'end_date', datetime.datetime.now(datetime.timezone.utc))
         else:
-            end_date = self._format_date_as_iso('end_date', end_date)
+            end_date = self._format_date_as_iso('end_date', end_date, end_bound=True)
 
         params = {
                 'types':  ','.join(transaction_types),
@@ -861,9 +864,19 @@ class BaseClient(EnumEnforcer, ABC):
         '''
         period_type = self.convert_enum(
             period_type, self.PriceHistory.PeriodType)
+        if isinstance(period, self.PriceHistory.Period):
+            if period_type is None:
+                period_type = period.context
+            elif period_type != period.context:
+                raise ValueError('period does not match period_type')
         period = self.convert_enum(period, self.PriceHistory.Period)
         frequency_type = self.convert_enum(
             frequency_type, self.PriceHistory.FrequencyType)
+        if isinstance(frequency, self.PriceHistory.Frequency):
+            if frequency_type is None:
+                frequency_type = frequency.context
+            elif frequency_type != frequency.context:
+                raise ValueError('frequency does not match frequency_type')
         frequency = self.convert_enum(
             frequency, self.PriceHistory.Frequency)
         need_extended_hours_data = self._validate_bool(
