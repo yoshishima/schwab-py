@@ -1,7 +1,7 @@
 import math
 import warnings
 
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_EVEN
 
 from schwab.orders import common
 from schwab.utils import EnumEnforcer
@@ -54,9 +54,20 @@ def truncate_float(flt):
 
     decimal_places = 4 if abs(value) < 1 and value != 0 else 2
     quantum = Decimal(1).scaleb(-decimal_places)
+    if isinstance(flt, float):
+        nearest = value.quantize(quantum, rounding=ROUND_HALF_EVEN)
+        # Recover tick boundaries obscured by float arithmetic. Never snap
+        # to zero: nonzero prices below our precision must be rejected.
+        if nearest != 0 and abs(value - nearest) <= Decimal('1e-9'):
+            value = nearest
+            decimal_places = 4 if abs(value) < 1 else 2
+            quantum = Decimal(1).scaleb(-decimal_places)
     truncated = value.quantize(quantum, rounding=ROUND_DOWN)
 
-    # Match the previous behavior for values that truncate to negative zero.
+    if value != 0 and truncated.is_zero():
+        raise ValueError('nonzero price must not truncate to zero')
+
+    # Normalize explicitly supplied negative zero.
     if truncated.is_zero():
         truncated = abs(truncated)
     return format(truncated, f'.{decimal_places}f')

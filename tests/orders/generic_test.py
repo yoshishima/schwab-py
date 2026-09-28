@@ -1233,6 +1233,36 @@ class OrderBuilderExamplesTest(unittest.TestCase):
 
 class TruncateFloatTest(unittest.TestCase):
 
+    def test_float_arithmetic_near_tick_boundaries(self):
+        cases = [
+            ((10.1 + 10.2) / 2, '10.15'),
+            (1.15 * 3, '3.45'),
+            (2.3 - 0.2, '2.10'),
+            (math.nextafter(0.1234, 0), '0.1234'),
+            (math.nextafter(1.0, 0), '1.00'),
+            (19.9999999, '19.99'),
+            (0.12339999, '0.1233'),
+        ]
+        for value, expected in cases:
+            for sign in (1, -1):
+                with self.subTest(value=value, sign=sign):
+                    self.assertEqual(
+                        ('-' if sign < 0 else '') + expected,
+                        truncate_float(sign * value))
+
+    def test_nonzero_prices_below_precision_are_rejected(self):
+        for value in (0.00003, 0.00005, 1e-10, 5e-324):
+            for sign in (1, -1):
+                with self.subTest(value=value, sign=sign):
+                    with self.assertRaisesRegex(ValueError, 'truncate to zero'):
+                        truncate_float(sign * value)
+
+    def test_decimal_prices_are_not_snapped(self):
+        self.assertEqual('10.14', truncate_float(Decimal('10.1499999999')))
+
+    def test_explicit_negative_zero(self):
+        self.assertEqual('0.00', truncate_float(-0.0))
+
     def test_zero(self):
         self.assertEqual('0.00', truncate_float(0))
 

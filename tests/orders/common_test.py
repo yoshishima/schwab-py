@@ -6,6 +6,30 @@ import unittest
 
 class MultiOrderTest(unittest.TestCase):
 
+    def test_trigger_can_reuse_first_order(self):
+        entry = OrderBuilder().set_order_strategy_type(OrderStrategyType.SINGLE)
+        before = entry.build()
+        first = first_triggers_second(entry, OrderBuilder().set_price('10.00'))
+        second = first_triggers_second(entry, OrderBuilder().set_price('11.00'))
+
+        self.assertIsNot(entry, first)
+        self.assertIsNot(first, second)
+        self.assertEqual(before, entry.build())
+        self.assertEqual([{'price': '10.00'}], first.build()['childOrderStrategies'])
+        self.assertEqual([{'price': '11.00'}], second.build()['childOrderStrategies'])
+
+    def test_trigger_copies_nested_first_order_state(self):
+        child = OrderBuilder().set_price('10.00')
+        entry = (OrderBuilder()
+                 .add_equity_leg(EquityInstruction.BUY, 'AAPL', 1)
+                 .add_child_order_strategy(child))
+        trigger = first_triggers_second(entry, OrderBuilder().set_price('11.00'))
+        before = trigger.build()
+
+        child.set_price('12.00')
+        entry.add_equity_leg(EquityInstruction.BUY, 'MSFT', 1)
+        self.assertEqual(before, trigger.build())
+
     @no_duplicates
     def test_oco(self):
         self.assertFalse(has_diff({

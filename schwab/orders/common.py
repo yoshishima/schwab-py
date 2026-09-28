@@ -1,3 +1,4 @@
+from copy import deepcopy
 from enum import Enum
 
 
@@ -370,7 +371,10 @@ def one_cancels_other(order1, order2):
 def first_triggers_second(first_order, second_order):
     '''
     If ``first_order`` is executed, immediately place ``second_order``.
+
+    Returns a deep copy of ``first_order`` with ``second_order`` attached.
+    The original first order is unchanged; the second order is held by reference.
     '''
-    return (first_order
+    return (deepcopy(first_order)
             .set_order_strategy_type(OrderStrategyType.TRIGGER)
             .add_child_order_strategy(second_order))
