@@ -75,6 +75,10 @@ class StreamClosedError(ConnectionError):
     '''The stream was closed or replaced while an operation was pending.'''
 
 
+class StreamBufferOverflowError(StreamClosedError):
+    '''The stream closed because its pending message buffer reached capacity.'''
+
+
 class UnparsableMessage(Exception):
     def __init__(self, raw_msg, json_parse_exception, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -116,8 +120,12 @@ class StreamClient(EnumEnforcer):
 
     def __init__(self, client, *, account_id=None,
                  enforce_enums=True, ssl_context=None, response_timeout=30.0,
-                 max_pending_handler_tasks=100):
+                 max_pending_handler_tasks=100, max_pending_messages=1000):
         super().__init__(enforce_enums)
+
+        if type(max_pending_messages) is not int or max_pending_messages <= 0:
+            raise ValueError('max_pending_messages must be a positive int')
+        self._max_pending_messages = max_pending_messages
 
         if (type(max_pending_handler_tasks) is not int
                 or max_pending_handler_tasks <= 0):
@@ -372,6 +380,11 @@ class StreamClient(EnumEnforcer):
                 if socket is not None:
                     await socket.close()
 
+    def _buffer_message(self, message):
+        if len(self._overflow_items) >= self._max_pending_messages:
+            raise StreamBufferOverflowError('Pending stream message buffer is full')
+        self._overflow_items.append(message)
+
     async def _reader_loop(self):
         try:
             while True:
@@ -390,7 +403,13 @@ class StreamClient(EnumEnforcer):
 
                     # Read acknowledgements even when data is queued. A
                     # cancelled consumer may restore older data during recv.
-                    msg = await self._receive(from_overflow=False)
+                    try:
+                        msg = await self._receive(from_overflow=False)
+                    except UnparsableMessage as exc:
+                        # Preserve FIFO delivery without failing acknowledgement
+                        # waiters. The next message consumer raises this marker.
+                        self._buffer_message(exc)
+                        continue
 
                     if 'response' in msg:
                         response_request_id = int(
@@ -419,9 +438,9 @@ class StreamClient(EnumEnforcer):
                             if not waiter.done():
                                 waiter.set_result(msg)
                         else:
-                            self._overflow_items.append(msg)
+                            self._buffer_message(msg)
                     else:
-                        self._overflow_items.append(msg)
+                        self._buffer_message(msg)
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
@@ -433,6 +452,9 @@ class StreamClient(EnumEnforcer):
                     waiter.set_exception(exc)
             self._response_waiters.clear()
             self._message_waiters.clear()
+            if isinstance(exc, StreamBufferOverflowError):
+                self.logger.error('Closing stream: pending message buffer is full')
+                await self._close_connection()
         finally:
             self._reader_wakeup.clear()
             self._reader_task = None
@@ -593,6 +615,9 @@ class StreamClient(EnumEnforcer):
             except ValueError:
                 pass
 
+        if isinstance(msg, UnparsableMessage):
+            raise msg
+
         # response
         if 'response' in msg:
             raise UnexpectedResponse(msg,
@@ -607,15 +632,17 @@ class StreamClient(EnumEnforcer):
                 if generation != self._connection_generation:
                     raise StreamClosedError('Stream connection replaced')
                 entry, label_message = msg.events[msg.next_event]
-                if not label_message and 'heartbeat' in entry:
+                if not isinstance(entry, dict):
+                    self.logger.warning('Ignoring non-object stream entry')
+                elif not label_message and 'heartbeat' in entry:
                     pass
-                elif label_message or 'service' in entry:
+                elif isinstance(entry.get('service'), str):
                     await self._dispatch_handlers(
                         entry['service'], entry, dispatch_state=msg,
                         label_message=label_message)
                 else:
                     self.logger.warning(
-                            'Ignoring stream notification without a service: '
+                            'Ignoring stream entry without a valid service: '
                             '%s',
                             LazyLog(lambda entry=entry: redact_json(entry)))
                 msg.next_event += 1

@@ -7,6 +7,7 @@ from enum import Enum
 
 import datetime
 import logging
+import warnings
 import re
 import schwab
 from urllib.parse import quote
@@ -180,6 +181,10 @@ class BaseClient(EnumEnforcer, ABC):
         self._assert_type(var_name, dt, [self._DATETIME])
 
         if dt.tzinfo is None:
+            warnings.warn(
+                'Naive {} is interpreted as UTC, not local time; pass a '
+                'timezone-aware datetime.'.format(var_name),
+                UserWarning, stacklevel=3)
             dt = dt.replace(tzinfo=datetime.timezone.utc)
 
         return int(dt.timestamp() * 1000)

@@ -35,11 +35,15 @@ def _build_object(obj):
     else:
         ret = {}
         for name, value in vars(obj).items():
+            if name == '_numeric_prices':
+                continue
             if value is None or name[0] != '_':
                 continue
 
             name = name[1:]
             ret[name] = _build_object(value)
+        if isinstance(obj, OrderBuilder):
+            obj._format_option_prices(ret)
         return ret
 
 
@@ -84,6 +88,7 @@ class OrderBuilder(EnumEnforcer):
 
     def __init__(self, *, enforce_enums=True):
         super().__init__(enforce_enums)
+        self._numeric_prices = set()
 
         self._session = None
         self._duration = None
@@ -252,8 +257,10 @@ class OrderBuilder(EnumEnforcer):
         '''
         if isinstance(stop_price, str):
             self._stopPrice = stop_price
+            self._numeric_prices.discard('stopPrice')
         else:
             self._stopPrice = truncate_float(stop_price)
+            self._numeric_prices.add('stopPrice')
         return self
 
     def copy_stop_price(self, stop_price):
@@ -262,6 +269,7 @@ class OrderBuilder(EnumEnforcer):
         logic from :func:`set_stop_price`.
         '''
         self._stopPrice = stop_price
+        self._numeric_prices.discard('stopPrice')
         return self
 
     def clear_stop_price(self):
@@ -269,6 +277,7 @@ class OrderBuilder(EnumEnforcer):
         Clear the stop price.
         '''
         self._stopPrice = None
+        self._numeric_prices.discard('stopPrice')
         return self
 
     # StopPriceLinkBasis
@@ -385,8 +394,10 @@ class OrderBuilder(EnumEnforcer):
         '''
         if isinstance(price, str):
             self._price = price
+            self._numeric_prices.discard('price')
         else:
             self._price = truncate_float(price)
+            self._numeric_prices.add('price')
         return self
 
     def copy_price(self, price):
@@ -395,6 +406,7 @@ class OrderBuilder(EnumEnforcer):
         logic from :func:`set_price`.
         '''
         self._price = price
+        self._numeric_prices.discard('price')
         return self
 
     def clear_price(self):
@@ -402,6 +414,7 @@ class OrderBuilder(EnumEnforcer):
         Clear the order price
         '''
         self._price = None
+        self._numeric_prices.discard('price')
         return self
 
     # TaxLotMethod
@@ -535,6 +548,10 @@ class OrderBuilder(EnumEnforcer):
         :param symbol: Option symbol
         :param quantity: Number of contracts for the order
         '''
+        if not _is_finite_number(quantity) or quantity <= 0:
+            raise ValueError('quantity must be positive and finite')
+        if quantity != int(quantity):
+            raise ValueError('option quantity must be a positive whole number')
         instruction = self.convert_enum(instruction, common.OptionInstruction)
         return self.__add_order_leg(
             instruction, common.OptionInstrument(symbol), quantity)
@@ -547,6 +564,18 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # Build
+
+    def _format_option_prices(self, order):
+        legs = order.get('orderLegCollection', [])
+        if not legs or not all(
+                leg['instrument']['assetType'] == 'OPTION' for leg in legs):
+            return
+        for field in self._numeric_prices:
+            value = Decimal(order[field])
+            truncated = value.quantize(Decimal('0.01'), rounding=ROUND_DOWN)
+            if value != 0 and truncated.is_zero():
+                raise ValueError('nonzero option price must not truncate to zero')
+            order[field] = format(truncated, '.2f')
 
     def build(self):
         return _build_object(self)

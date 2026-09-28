@@ -5741,7 +5741,7 @@ class StreamClientTest(IsolatedAsyncioTestCase):
             await self.client.handle_message()
 
         self.assertIn(
-            'Ignoring stream notification without a service',
+            'Ignoring stream entry without a valid service',
             '\n'.join(logs.output))
 
     @no_duplicates
