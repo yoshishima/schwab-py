@@ -76,6 +76,13 @@ Function parameters are categorized as either required or optional.  Required
 parameters are passed as positional arguments.  Optional parameters, are passed 
 as keyword arguments. 
 
+Account hashes, order IDs, and transaction IDs used in URL paths must be
+nonempty and contain only ASCII letters, digits, underscores, or hyphens.
+Malformed IDs raise ``ValueError`` before a request is sent. Pass symbols and
+other path values in their original form; the client percent-encodes them as
+individual path segments. Empty values and the dot segments ``.`` and ``..``
+are rejected.
+
 Parameters which have special values recognized by the API are 
 represented by `Python enums <https://docs.python.org/3/library/enum.html>`_. 
 This is because the API rejects requests which pass unrecognized values, and 

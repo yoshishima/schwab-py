@@ -5778,6 +5778,20 @@ class StreamClientTest(IsolatedAsyncioTestCase):
         with self.assertRaises(schwab.streaming.UnparsableMessage):
             await self.client.handle_message()
 
+    async def test_binary_frames_preserve_parse_error(self):
+        self.client._socket = AsyncMock()
+        for raw, error in ((b'{invalid', json.JSONDecodeError),
+                           (b'\xff', UnicodeDecodeError)):
+            with self.subTest(raw=raw):
+                self.client._socket.recv.return_value = raw
+                with self.assertRaises(streaming.UnparsableMessage) as raised:
+                    await self.client._receive()
+                self.assertEqual(raw, raised.exception.raw_msg)
+                self.assertIsInstance(raised.exception.__cause__, error)
+                self.assertIn(repr(raw), str(raised.exception))
+        self.client._socket.recv.return_value = b'{"notify": []}'
+        self.assertEqual({'notify': []}, await self.client._receive())
+
     @no_duplicates
     @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
     async def test_handle_message_multiple_handlers(self, ws_connect):

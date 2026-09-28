@@ -97,6 +97,42 @@ class _TestClient:
 
     # Generic functionality
 
+    def test_untrusted_identifiers_are_rejected_before_requests(self):
+        for value in ('..', '../OTHER/orders/123', 'a/b', 'a\\b',
+                      'a?x=1', 'a#fragment', '%2e%2e', ''):
+            operations = (
+                lambda: self.client.get_account(value),
+                lambda: self.client.get_order(value, ACCOUNT_HASH),
+                lambda: self.client.cancel_order(value, ACCOUNT_HASH),
+                lambda: self.client.cancel_order(ORDER_ID, value),
+                lambda: self.client.get_orders_for_account(value),
+                lambda: self.client.place_order(value, {}),
+                lambda: self.client.replace_order(ACCOUNT_HASH, value, {}),
+                lambda: self.client.preview_order(value, {}),
+                lambda: self.client.get_transactions(value),
+                lambda: self.client.get_transaction(ACCOUNT_HASH, value),
+            )
+            for operation in operations:
+                with self.subTest(value=value, operation=operation):
+                    with self.assertRaises(ValueError):
+                        operation()
+        for method in ('get', 'post', 'put', 'delete'):
+            getattr(self.mock_session, method).assert_not_called()
+
+    def test_quote_symbol_is_one_encoded_path_segment(self):
+        for symbol, encoded in (
+                ('/ES', '%2FES'), ('A?B#C', 'A%3FB%23C'),
+                ('../A', '..%2FA'), ('%2F', '%252F'),
+                ('A B', 'A%20B'), ('BRK/B', 'BRK%2FB')):
+            with self.subTest(symbol=symbol):
+                self.client.get_quote(symbol)
+                self.mock_session.get.assert_called_with(
+                        'https://api.schwabapi.com/marketdata/v1/' +
+                        encoded + '/quotes', params={})
+        for symbol in ('.', '..'):
+            with self.assertRaises(ValueError):
+                self.client.get_quote(symbol)
+
 
     def test_price_history_period_members_are_distinct(self):
         period = self.client_class.PriceHistory.Period
@@ -2104,7 +2140,7 @@ class _TestClient:
         self.client.get_movers(
                 self.client.Movers.Index.DJI)
         self.mock_session.get.assert_called_once_with(
-            self.make_url('/marketdata/v1/movers/$DJI'), params={})
+            self.make_url('/marketdata/v1/movers/%24DJI'), params={})
 
 
     def test_get_movers_index_unchecked(self):
@@ -2119,7 +2155,7 @@ class _TestClient:
                 self.client.Movers.Index.DJI,
                 sort_order=self.client.Movers.SortOrder.VOLUME)
         self.mock_session.get.assert_called_once_with(
-            self.make_url('/marketdata/v1/movers/$DJI'),
+            self.make_url('/marketdata/v1/movers/%24DJI'),
             params={'sort': 'VOLUME'})
 
 
@@ -2129,7 +2165,7 @@ class _TestClient:
                 self.client.Movers.Index.DJI,
                 sort_order='not-a-sort-order')
         self.mock_session.get.assert_called_once_with(
-            self.make_url('/marketdata/v1/movers/$DJI'),
+            self.make_url('/marketdata/v1/movers/%24DJI'),
             params={'sort': 'not-a-sort-order'})
 
 
@@ -2138,7 +2174,7 @@ class _TestClient:
                 self.client.Movers.Index.DJI,
                 frequency=self.client.Movers.Frequency.ZERO)
         self.mock_session.get.assert_called_once_with(
-            self.make_url('/marketdata/v1/movers/$DJI'),
+            self.make_url('/marketdata/v1/movers/%24DJI'),
             params={'frequency': '0'})
 
 
@@ -2148,7 +2184,7 @@ class _TestClient:
                 self.client.Movers.Index.DJI,
                 frequency='999999')
         self.mock_session.get.assert_called_once_with(
-            self.make_url('/marketdata/v1/movers/$DJI'),
+            self.make_url('/marketdata/v1/movers/%24DJI'),
             params={'frequency': '999999'})
 
 

@@ -71,6 +71,10 @@ class UnexpectedResponseCode(Exception):
         self.response = response
 
 
+class StreamClosedError(ConnectionError):
+    '''The stream was closed or replaced while an operation was pending.'''
+
+
 class UnparsableMessage(Exception):
     def __init__(self, raw_msg, json_parse_exception, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -209,11 +213,11 @@ class StreamClient(EnumEnforcer):
             raw = await self._socket.recv()
             try:
                 ret = self.json_decoder.decode_json_string(raw)
-            except json.decoder.JSONDecodeError as e:
+            except (json.decoder.JSONDecodeError, UnicodeDecodeError) as e:
                 msg = ('Failed to parse message. This often happens with ' +
                        'unknown symbols or other error conditions. Full ' +
-                       'message text: ' + raw)
-                raise UnparsableMessage(raw, e, msg)
+                       'message text: {!r}'.format(raw))
+                raise UnparsableMessage(raw, e, msg) from e
 
             self.logger.debug(
                 'Receive %s: Returning message from stream: %s',
@@ -324,10 +328,10 @@ class StreamClient(EnumEnforcer):
 
         for waiter in self._response_waiters.values():
             if not waiter.done():
-                waiter.cancel()
+                waiter.set_exception(StreamClosedError('Stream connection closed'))
         for waiter in self._message_waiters:
             if not waiter.done():
-                waiter.cancel()
+                waiter.set_exception(StreamClosedError('Stream connection closed'))
         self._response_waiters.clear()
         self._message_waiters.clear()
 
@@ -526,10 +530,11 @@ class StreamClient(EnumEnforcer):
         for handler in handlers[dispatch_state.next_handler:]:
             # Apply backpressure before invoking a handler or creating a task.
             await self._handler_slots.acquire()
+            if generation != self._connection_generation:
+                self._handler_slots.release()
+                raise StreamClosedError('Stream connection replaced')
             release_slot = True
             try:
-                if generation != self._connection_generation:
-                    return
                 result = handler(copy.deepcopy(message))
                 if inspect.isawaitable(result):
                     task = asyncio.ensure_future(result)
@@ -547,7 +552,10 @@ class StreamClient(EnumEnforcer):
     async def handle_message(self):
         # Serialize delivery and dispatch so a cancelled consumer can restore
         # its message before a later consumer starts dispatching newer data.
+        generation = self._connection_generation
         async with self._dispatch_lock:
+            if generation != self._connection_generation:
+                raise StreamClosedError('Stream connection replaced')
             await self._handle_message()
 
     async def _handle_message(self):
@@ -597,7 +605,7 @@ class StreamClient(EnumEnforcer):
         try:
             while msg.next_event < len(msg.events):
                 if generation != self._connection_generation:
-                    return
+                    raise StreamClosedError('Stream connection replaced')
                 entry, label_message = msg.events[msg.next_event]
                 if not label_message and 'heartbeat' in entry:
                     pass

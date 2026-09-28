@@ -904,6 +904,28 @@ class ClientFromManualFlow(unittest.TestCase):
 
 class TokenMetadataTest(unittest.TestCase):
 
+    def test_failed_persistence_keeps_refreshed_token_in_memory(self):
+        old_token = {'access_token': 'old', 'token_type': 'Bearer'}
+        writer = MagicMock(side_effect=PermissionError('token file locked'))
+        metadata = auth.TokenMetadata(old_token, 123, writer)
+        session = auth.OAuth2Client(
+                'client-id', token=old_token,
+                update_token=metadata.wrapped_token_write_func())
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            'access_token': 'new', 'token_type': 'Bearer', 'expires_in': 1800}
+        try:
+            with patch.object(session, '_http_post', return_value=response):
+                with self.assertRaises(PermissionError):
+                    session._refresh_token('https://example.invalid/token')
+            self.assertEqual('new', session.token['access_token'])
+            self.assertIs(metadata.token, session.token)
+            self.assertEqual(123, metadata.creation_timestamp)
+            writer.assert_called_once()
+        finally:
+            session.close()
+
     @no_duplicates
     def test_from_loaded_token(self):
         token = {'token': 'yes', 'creation_timestamp': TOKEN_CREATION_TIMESTAMP}

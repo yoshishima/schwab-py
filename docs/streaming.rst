@@ -176,6 +176,12 @@ a subscription is waiting for its acknowledgement. Concurrent calls to
 ``handle_message()`` serialize message delivery and handler dispatch to preserve
 this order. Asynchronous handler completion order remains independent.
 
+Logout or reconnect causes pending message consumers and subscription requests
+from the previous connection to raise ``schwab.streaming.StreamClosedError``,
+a subclass of ``ConnectionError``. This includes consumers waiting for dispatch
+capacity or behind another consumer. Explicitly canceling a consumer task still
+raises ``asyncio.CancelledError``.
+
 Logout and reconnect cancel pending handler tasks from the previous connection.
 Handlers should release their resources when canceled and propagate
 ``asyncio.CancelledError``. A handler may itself call ``logout()``; that handler

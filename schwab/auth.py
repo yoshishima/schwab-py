@@ -129,16 +129,16 @@ class TokenMetadata:
         '''
         Returns a version of the unwrapped write function which wraps the token 
         in metadata and updates our view on the most recent token.
+
+        Persistence errors propagate, but the in-memory token remains current
+        so subsequent operations use the same token as the OAuth session.
         '''
         def wrapped_token_write_func(token, *args, **kwargs):
-            # If the write function is going to raise an exception, let it do so 
-            # here before we update our reference to the current token.
-            ret = self.unwrapped_token_write_func(
-                self.wrap_token_in_metadata(token), *args, **kwargs)
-
+            # Authlib already uses this token. Keep our in-memory view current
+            # even if persistence fails, while still surfacing the write error.
             self.token = token
-
-            return ret
+            return self.unwrapped_token_write_func(
+                self.wrap_token_in_metadata(token), *args, **kwargs)
 
         return wrapped_token_write_func
 

@@ -471,7 +471,7 @@ class LatestOrderTest(unittest.TestCase):
         mock_construct_repeat_order.assert_called_once_with(orders[0])
         mock_print.assert_has_calls([
                 call(callee.Contains('destinationLinkName')),
-                call(callee.Contains('broken')),
+                call(callee.Contains('preserved in the generated code')),
                 call(),
                 call('# Order ID', 401),
                 call(mock_code_for_builder.return_value)])

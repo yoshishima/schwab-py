@@ -15,7 +15,7 @@ from schwab.orders.common import OrderStrategyType
 from schwab.orders.equities import equity_buy_market
 from schwab.orders.generic import OrderBuilder
 from schwab.orders.options import OptionSymbol
-from schwab.streaming import StreamClient, UnexpectedResponseCode
+from schwab.streaming import StreamClient, StreamClosedError, UnexpectedResponseCode
 from .utils import account_preferences, MockResponse
 
 
@@ -144,6 +144,48 @@ class StreamLifecycleTest(unittest.IsolatedAsyncioTestCase):
         await self.client.handle_message()
         self.assertEqual(seen, [0, 1])
 
+    async def test_logout_fails_waiting_and_queued_consumers(self):
+        self.buffer_messages(0)
+        consumers = [asyncio.create_task(self.client.handle_message())
+                     for _ in range(2)]
+        await asyncio.sleep(0)
+        await self.client.logout()
+        results = await asyncio.gather(*consumers, return_exceptions=True)
+        for task, result in zip(consumers, results):
+            self.assertIsInstance(result, StreamClosedError)
+            self.assertFalse(task.cancelled())
+
+    async def test_reconnect_fails_existing_consumer(self):
+        self.buffer_messages(0)
+        consumer = asyncio.create_task(self.client.handle_message())
+        await asyncio.sleep(0)
+        with patch('schwab.streaming.ws_client.connect',
+                   new_callable=AsyncMock, return_value=self.socket()):
+            await self.client.login()
+        with self.assertRaises(StreamClosedError):
+            await consumer
+        self.assertFalse(consumer.cancelled())
+
+    async def test_disconnect_fails_pending_subscription(self):
+        self.buffer_messages(0)
+        self.client._socket.send.side_effect = None
+        subscription = asyncio.create_task(self.client.chart_equity_subs(['AAPL']))
+        await asyncio.sleep(0)
+        await self.client._close_connection()
+        with self.assertRaises(StreamClosedError):
+            await subscription
+        self.assertFalse(subscription.cancelled())
+
+    async def test_task_group_reports_disconnect(self):
+        self.buffer_messages(0)
+        with self.assertRaises(ExceptionGroup) as raised:
+            async with asyncio.TaskGroup() as group:
+                group.create_task(self.client.handle_message())
+                await asyncio.sleep(0)
+                await self.client.logout()
+        self.assertTrue(all(isinstance(exc, StreamClosedError)
+                            for exc in raised.exception.exceptions))
+
     async def test_cancelled_delivery_is_not_restored_after_disconnect(self):
         self.buffer_messages(1)
         message = self.client._overflow_items.popleft()
@@ -203,7 +245,8 @@ class StreamLifecycleTest(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0)
         await asyncio.sleep(0)
         await asyncio.wait_for(self.client.logout(), 1)
-        await asyncio.wait_for(second, 1)
+        with self.assertRaises(StreamClosedError):
+            await asyncio.wait_for(second, 1)
         self.assertEqual(seen, [0])
         self.assertFalse(self.client._handler_tasks)
         self.assertIsNone(self.client._socket)

@@ -7,7 +7,9 @@ from enum import Enum
 
 import datetime
 import logging
+import re
 import schwab
+from urllib.parse import quote
 
 from schwab.orders.generic import OrderBuilder
 
@@ -17,6 +19,15 @@ from ..utils import EnumEnforcer
 
 def get_logger():
     return get_redacted_logger(__name__)
+
+
+def _path_segment(value, *, identifier=False):
+    '''Validate identifiers and encode a single, nonempty URL path segment.'''
+    value = str(value)
+    if (not value or value in ('.', '..') or
+            (identifier and not re.fullmatch(r'[A-Za-z0-9_-]+', value))):
+        raise ValueError('invalid URL path component: {!r}'.format(value))
+    return quote(value, safe='')
 
 
 class _ContextualValueEnum(Enum):
@@ -214,7 +225,8 @@ class BaseClient(EnumEnforcer, ABC):
         if fields:
             params['fields'] = ','.join(fields)
 
-        path = '/trader/v1/accounts/{}'.format(account_hash)
+        path = '/trader/v1/accounts/{}'.format(
+                _path_segment(account_hash, identifier=True))
         return self._get_request(path, params)
 
     def get_account_numbers(self):
@@ -249,12 +261,16 @@ class BaseClient(EnumEnforcer, ABC):
 
     def get_order(self, order_id, account_hash):
         '''Get a specific order for a specific account by its order ID'''
-        path = '/trader/v1/accounts/{}/orders/{}'.format(account_hash, order_id)
+        path = '/trader/v1/accounts/{}/orders/{}'.format(
+                _path_segment(account_hash, identifier=True),
+                _path_segment(order_id, identifier=True))
         return self._get_request(path, {})
 
     def cancel_order(self, order_id, account_hash):
         '''Cancel a specific order for a specific account'''
-        path = '/trader/v1/accounts/{}/orders/{}'.format(account_hash, order_id)
+        path = '/trader/v1/accounts/{}/orders/{}'.format(
+                _path_segment(account_hash, identifier=True),
+                _path_segment(order_id, identifier=True))
         return self._delete_request(path)
 
     class Order:
@@ -338,7 +354,8 @@ class BaseClient(EnumEnforcer, ABC):
         :param status: Restrict query to orders with this status. See
                        :class:`Order.Status` for options.
         '''
-        path = '/trader/v1/accounts/{}/orders'.format(account_hash)
+        path = '/trader/v1/accounts/{}/orders'.format(
+                _path_segment(account_hash, identifier=True))
         return self._get_request(path, self._make_order_query(
             default_lookback_days=365,
             max_results=max_results,
@@ -386,7 +403,8 @@ class BaseClient(EnumEnforcer, ABC):
         if isinstance(order_spec, OrderBuilder):
             order_spec = order_spec.build()
 
-        path = '/trader/v1/accounts/{}/orders'.format(account_hash)
+        path = '/trader/v1/accounts/{}/orders'.format(
+                _path_segment(account_hash, identifier=True))
         return self._post_request(path, order_spec)
 
     def replace_order(self, account_hash, order_id, order_spec):
@@ -396,7 +414,9 @@ class BaseClient(EnumEnforcer, ABC):
         if isinstance(order_spec, OrderBuilder):
             order_spec = order_spec.build()
 
-        path = '/trader/v1/accounts/{}/orders/{}'.format(account_hash, order_id)
+        path = '/trader/v1/accounts/{}/orders/{}'.format(
+                _path_segment(account_hash, identifier=True),
+                _path_segment(order_id, identifier=True))
         return self._put_request(path, order_spec)
 
     def preview_order(self, account_hash, order_spec):
@@ -405,7 +425,8 @@ class BaseClient(EnumEnforcer, ABC):
         if isinstance(order_spec, OrderBuilder):
             order_spec = order_spec.build()
 
-        path = '/trader/v1/accounts/{}/previewOrder'.format(account_hash)
+        path = '/trader/v1/accounts/{}/previewOrder'.format(
+                _path_segment(account_hash, identifier=True))
         return self._post_request(path, order_spec)
 
 
@@ -489,7 +510,8 @@ class BaseClient(EnumEnforcer, ABC):
         if symbol is not None:
             params['symbol'] = symbol
 
-        path = '/trader/v1/accounts/{}/transactions'.format(account_hash)
+        path = '/trader/v1/accounts/{}/transactions'.format(
+                _path_segment(account_hash, identifier=True))
         return self._get_request(path, params)
 
     def get_transaction(self, account_hash, transaction_id):
@@ -501,7 +523,8 @@ class BaseClient(EnumEnforcer, ABC):
                                return data.
         '''
         path = '/trader/v1/accounts/{}/transactions/{}'.format(
-            account_hash, transaction_id)
+            _path_segment(account_hash, identifier=True),
+            _path_segment(transaction_id, identifier=True))
         return self._get_request(path, {})
 
 
@@ -543,7 +566,7 @@ class BaseClient(EnumEnforcer, ABC):
         else:
             params = {}
 
-        path = '/marketdata/v1/{}/quotes'.format(symbol)
+        path = '/marketdata/v1/{}/quotes'.format(_path_segment(symbol))
         return self._get_request(path, params)
 
     def get_quotes(self, symbols, *, fields=None, indicative=None):
@@ -1100,7 +1123,7 @@ class BaseClient(EnumEnforcer, ABC):
         sort_order = self.convert_enum(sort_order, self.Movers.SortOrder)
         frequency = self.convert_enum(frequency, self.Movers.Frequency)
 
-        path = '/marketdata/v1/movers/{}'.format(index)
+        path = '/marketdata/v1/movers/{}'.format(_path_segment(index))
 
         params = {}
         if sort_order is not None:
@@ -1152,7 +1175,7 @@ class BaseClient(EnumEnforcer, ABC):
         if date is not None:
             params['date'] = self._format_date_as_day('date', date)
 
-        path = '/marketdata/v1/markets/{}'.format(market)
+        path = '/marketdata/v1/markets/{}'.format(_path_segment(market))
         return self._get_request(path, params)
 
 
@@ -1233,4 +1256,4 @@ class BaseClient(EnumEnforcer, ABC):
             raise ValueError('cusip must be passed as str')
 
         return self._get_request(
-                '/marketdata/v1/instruments/{}'.format(cusip), {})
+                '/marketdata/v1/instruments/{}'.format(_path_segment(cusip)), {})

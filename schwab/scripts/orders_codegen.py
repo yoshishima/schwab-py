@@ -96,8 +96,8 @@ def latest_order_main(sys_args):
             print(('# Warning: This order contains a non-"AutoRoute" value of ' +
                    '"destinationLinkName" ("{}").').format(
                            order['destinationLinkName']))
-            print('#          This parameter appears to be broken in the ' +
-                  'API, so it is omitted in this generated code.''')
+            print('#          This value is preserved in the generated code. ' +
+                  'Verify it before submitting the order.')
             emit_destination_warning_newline = True
         if emit_destination_warning_newline:
             print()

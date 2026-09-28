@@ -7,10 +7,25 @@ from schwab.contrib.orders import (
         code_for_builder,
         construct_repeat_order,
 )
-from schwab.orders.common import EquityInstruction, OrderType
+from schwab.orders.common import EquityInstruction, OptionInstruction, OrderType
 from schwab.orders.generic import OrderBuilder
 
 class ConstructRepeatOrderTest(unittest.TestCase):
+
+    def test_generated_symbols_round_trip_as_data(self):
+        symbols = ['A"B', "A'B", 'A\\nB', 'A\nB',
+                   'A\"); injected = True; #', '\u00e9']
+        for symbol in symbols:
+            for method, instruction in (
+                    ('add_equity_leg', EquityInstruction.BUY),
+                    ('add_option_leg', OptionInstruction.BUY_TO_OPEN)):
+                with self.subTest(symbol=symbol, method=method):
+                    builder = OrderBuilder()
+                    getattr(builder, method)(instruction, symbol, 1)
+                    namespace = {}
+                    exec(code_for_builder(builder, 'order'), namespace)
+                    self.assertEqual(builder.build(), namespace['order'].build())
+                    self.assertNotIn('injected', namespace)
 
     def setUp(self):
         self.maxDiff = None

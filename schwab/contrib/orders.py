@@ -215,7 +215,7 @@ class EquityOrderLegAST:
 
     def render(self, imports, lines, paren_depth=0):
         imports['schwab.orders.common'].add('EquityInstruction')
-        lines.append('.add_equity_leg(EquityInstruction.{}, "{}", {})'.format(
+        lines.append('.add_equity_leg(EquityInstruction.{}, {!r}, {})'.format(
             self.instruction, self.symbol, self.quantity))
 
 
@@ -227,7 +227,7 @@ class OptionOrderLegAST:
 
     def render(self, imports, lines, paren_depth=0):
         imports['schwab.orders.common'].add('OptionInstruction')
-        lines.append('.add_option_leg(OptionInstruction.{}, "{}", {})'.format(
+        lines.append('.add_option_leg(OptionInstruction.{}, {!r}, {})'.format(
             self.instruction, self.symbol, self.quantity))
 
 
