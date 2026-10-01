@@ -193,6 +193,28 @@ def _get_callback_path(encoded_path):
     return path
 
 
+def _run_callback_server(app, callback_port):
+    if sys.platform != 'darwin':
+        app.run(port=callback_port, ssl_context='adhoc')
+        return
+
+    import socketserver
+    from werkzeug.serving import ThreadedWSGIServer
+
+    class LoopbackServer(ThreadedWSGIServer):
+        def server_bind(self):
+            # HTTPServer normally reverse-resolves this address before
+            # listening. That lookup can stall on macOS even for loopback.
+            # This server is always bound to the validated literal address.
+            socketserver.TCPServer.server_bind(self)
+            self.server_name = '127.0.0.1'
+            self.server_port = self.server_address[1]
+
+    with LoopbackServer('127.0.0.1', callback_port, app,
+                        ssl_context='adhoc') as server:
+        server.serve_forever()
+
+
 # This runs in a separate process and is invisible to coverage
 def __run_client_from_login_flow_server(
         q, callback_port, callback_path, readiness_token):  # pragma: no cover
@@ -223,7 +245,7 @@ def __run_client_from_login_flow_server(
 
         old_stdout = sys.stdout
         sys.stdout = devnull
-        app.run(port=callback_port, ssl_context='adhoc')
+        _run_callback_server(app, callback_port)
         sys.stdout = old_stdout
 
 

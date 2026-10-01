@@ -296,6 +296,44 @@ class ClientFromLoginFlowTest(unittest.TestCase):
                     callback_timeout=0)
 
 
+class CallbackServerBindingTest(unittest.TestCase):
+
+    def test_macos_binds_loopback_tls_without_reverse_dns(self):
+        import flask
+        import ssl
+        from werkzeug.serving import ThreadedWSGIServer
+
+        servers = []
+
+        def capture_server(server):
+            servers.append(server)
+            self.assertEqual(server.server_address[0], '127.0.0.1')
+            self.assertGreater(server.server_address[1], 0)
+            self.assertEqual(server.server_name, '127.0.0.1')
+            self.assertEqual(server.server_port, server.server_address[1])
+            self.assertIsInstance(server.socket, ssl.SSLSocket)
+            self.assertIsNotNone(server.ssl_context)
+            self.assertTrue(server.multithread)
+
+        with patch('schwab.auth.sys', MagicMock(platform='darwin')), \
+                patch('socket.getfqdn', side_effect=AssertionError(
+                    'callback startup must not depend on reverse DNS')) as lookup, \
+                patch.object(ThreadedWSGIServer, 'serve_forever', capture_server):
+            auth._run_callback_server(flask.Flask(__name__), 0)
+
+        lookup.assert_not_called()
+        self.assertEqual(len(servers), 1)
+        self.assertEqual(servers[0].socket.fileno(), -1)
+
+    def test_other_platforms_keep_flask_server_settings(self):
+        for platform in ('linux', 'win32'):
+            with self.subTest(platform=platform), \
+                    patch('schwab.auth.sys', MagicMock(platform=platform)):
+                app = MagicMock()
+                auth._run_callback_server(app, 8182)
+                app.run.assert_called_once_with(port=8182, ssl_context='adhoc')
+
+
 class CallbackProcessContextTest(unittest.TestCase):
 
     def assert_callback_context(self, platform, use_spawn):

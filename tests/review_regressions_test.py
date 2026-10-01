@@ -447,7 +447,8 @@ class CallbackRoutingTest(unittest.TestCase):
             with self.subTest(path=path):
                 apps = []
                 queue = Mock()
-                with patch.object(flask.Flask, 'run', lambda app, **kw: apps.append(app)):
+                with patch('schwab.auth._run_callback_server',
+                           lambda app, port: apps.append(app)):
                     getattr(auth, '__run_client_from_login_flow_server')(
                         queue, 8182, auth._get_callback_path(path), 'ready')
                 response = apps[0].test_client().get(
