@@ -236,6 +236,7 @@ subject to your composite order rules.
 .. autofunction:: schwab.orders.common.first_triggers_second
 
 
+----------------------------
 Vertical template validation
 ----------------------------
 

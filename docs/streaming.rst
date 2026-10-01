@@ -590,8 +590,9 @@ Account Activity
   :undoc-members:
 
 
+++++++++++++++++++++++++++++++++++++
 Malformed messages and buffer limits
-------------------------------------
+++++++++++++++++++++++++++++++++++++
 
 Invalid JSON is delivered as ``UnparsableMessage`` by ``handle_message()`` in
 message order. It does not fail pending subscription acknowledgements; the

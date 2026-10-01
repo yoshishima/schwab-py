@@ -399,8 +399,9 @@ Market Hours
 
 
 
+++++++++++++++++++++++++++++++++++++++
 Date-only order and transaction bounds
--------------------------------------
+++++++++++++++++++++++++++++++++++++++
 
 For order queries on one or all linked accounts and for transaction queries,
 ``datetime.date`` bounds use UTC calendar days. A start date becomes midnight
@@ -411,8 +412,9 @@ boundary is included. Pass explicit timezone-aware ``datetime.datetime`` values
 when exact boundaries or a market-local day are needed. Datetime values are
 converted to UTC without advancing the end bound; naive datetimes mean UTC.
 
+++++++++++++++++++++++++++++++
 Contextual price-history enums
------------------------------
+++++++++++++++++++++++++++++++
 
 ``get_price_history`` infers omitted ``period_type`` and ``frequency_type`` from
 ``Period`` and ``Frequency`` enum members. Explicit types must match the member's
@@ -422,8 +424,9 @@ with ``PeriodType.DAY``. With enum enforcement disabled, raw numeric values
 remain supported but cannot supply context for inference.
 
 
+++++++++++++++++++++++++++++++++++++
 Price-history datetime compatibility
-------------------------------------
+++++++++++++++++++++++++++++++++++++
 
 Price-history datetime bounds interpret naive datetimes as UTC and emit a
 ``UserWarning``. Earlier versions used the machine's local timezone through
@@ -433,8 +436,9 @@ zone with ``zoneinfo.ZoneInfo`` when constructing a market-local datetime.
 Timezone-aware bounds are converted to epoch milliseconds without a warning.
 
 
++++++++++++++++++++++++++++++++++++++++++
 Raw enum values and explicit query limits
-----------------------------------------
++++++++++++++++++++++++++++++++++++++++++
 
 Disabling enum enforcement allows raw API values, but members of an unrelated
 enum are still rejected. Iterable enum parameters treat a bare string as one
