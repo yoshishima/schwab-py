@@ -86,3 +86,61 @@ jobs:
     - name: Verify that documentation builds
       run: |
         sphinx-build -W docs/ docs-build
+
+  callback-startup-diagnostic:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.14"
+    - name: Install callback dependencies
+      run: python -m pip install .
+    - name: Diagnose local callback startup
+      shell: bash
+      run: |
+        cat > "$RUNNER_TEMP/schwab_callback_probe.py" <<'PY'
+        import faulthandler
+        import sys
+        import time
+        import multiprocess
+        import httpx2 as httpx
+        from schwab import auth
+
+        def serve(queue):
+            faulthandler.dump_traceback_later(5, file=sys.stderr)
+            try:
+                getattr(auth, '__run_client_from_login_flow_server')(
+                    queue, 6969, '/callback', 'ci-loopback-probe')
+            finally:
+                faulthandler.cancel_dump_traceback_later()
+
+        if __name__ == '__main__':
+            context = multiprocess.get_context('spawn')
+            queue = context.Queue()
+            server = context.Process(target=serve, args=(queue,))
+            server.start()
+            deadline = time.monotonic() + 15
+            last_error = None
+            try:
+                while time.monotonic() < deadline and server.exitcode is None:
+                    try:
+                        response = httpx.get(
+                            'https://127.0.0.1:6969/schwab-py-internal/status',
+                            verify=False, timeout=1)
+                        print('Local readiness:', response.status_code,
+                              response.text == 'ci-loopback-probe', flush=True)
+                        break
+                    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                        last_error = repr(exc)
+                        time.sleep(0.1)
+                else:
+                    print('Local callback did not become ready; exit code:',
+                          server.exitcode, 'last probe error:', last_error,
+                          flush=True)
+            finally:
+                if server.is_alive():
+                    server.terminate()
+                server.join(timeout=5)
+        PY
+        python -u "$RUNNER_TEMP/schwab_callback_probe.py"
