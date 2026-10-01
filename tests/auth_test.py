@@ -296,6 +296,58 @@ class ClientFromLoginFlowTest(unittest.TestCase):
                     callback_timeout=0)
 
 
+class CallbackProcessContextTest(unittest.TestCase):
+
+    def assert_callback_context(self, platform, use_spawn):
+        with patch('schwab.auth.sys', MagicMock(platform=platform)), \
+                patch('schwab.auth.multiprocess') as multiprocess, \
+                patch('schwab.auth.secrets.token_urlsafe',
+                      return_value='synthetic-readiness'), \
+                patch('schwab.auth.psutil.Process') as cleanup, \
+                patch('schwab.auth._wait_for_callback_server',
+                      side_effect=auth.RedirectServerExitedError(
+                          'stop before authentication')) as wait_for_server:
+            context = (multiprocess.get_context.return_value
+                       if use_spawn else multiprocess)
+            queue = context.Queue.return_value
+            server = context.Process.return_value
+
+            with self.assertRaisesRegex(auth.RedirectServerExitedError,
+                                        'stop before authentication'):
+                auth.client_from_login_flow(
+                    API_KEY, APP_SECRET,
+                    'https://127.0.0.1:8182/oauth%20callback;v1',
+                    'unused', interactive=False)
+
+            context.Queue.assert_called_once_with()
+            context.Process.assert_called_once_with(
+                target=getattr(auth, '__run_client_from_login_flow_server'),
+                args=(queue, 8182, '/oauth callback;v1',
+                      'synthetic-readiness'))
+            server.start.assert_called_once_with()
+            wait_for_server.assert_called_once_with(
+                server, 8182, 'synthetic-readiness')
+            cleanup.assert_called_once_with(server.pid)
+            cleanup.return_value.kill.assert_called_once_with()
+            server.join.assert_called_once_with(timeout=1.0)
+            multiprocess.set_start_method.assert_not_called()
+
+            if use_spawn:
+                multiprocess.get_context.assert_called_once_with('spawn')
+                multiprocess.Queue.assert_not_called()
+                multiprocess.Process.assert_not_called()
+            else:
+                multiprocess.get_context.assert_not_called()
+
+    def test_macos_uses_one_spawn_context_for_queue_and_process(self):
+        self.assert_callback_context('darwin', use_spawn=True)
+
+    def test_other_platforms_keep_the_default_context(self):
+        for platform in ('linux', 'win32'):
+            with self.subTest(platform=platform):
+                self.assert_callback_context(platform, use_spawn=False)
+
+
 class CallbackServerReadinessTest(unittest.TestCase):
 
     def setUp(self):

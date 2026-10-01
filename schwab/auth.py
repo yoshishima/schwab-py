@@ -387,10 +387,14 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
     callback_port = parsed.port if parsed.port else 443
     callback_path = _get_callback_path(parsed.path)
 
-    output_queue = multiprocess.Queue()
+    # Forking a multithreaded process is unsafe on macOS. Use a local
+    # spawn context without changing the application's global start method.
+    process_context = (multiprocess.get_context('spawn')
+                       if sys.platform == 'darwin' else multiprocess)
+    output_queue = process_context.Queue()
     readiness_token = secrets.token_urlsafe(32)
 
-    server = multiprocess.Process(
+    server = process_context.Process(
             target=__run_client_from_login_flow_server,
             args=(output_queue, callback_port, callback_path,
                   readiness_token))

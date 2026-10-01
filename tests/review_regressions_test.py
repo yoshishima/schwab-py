@@ -373,7 +373,10 @@ class StreamLifecycleTest(unittest.IsolatedAsyncioTestCase):
     async def test_logout_error_and_timeout_close_socket(self):
         for timeout in (False, True):
             with self.subTest(timeout=timeout):
-                self.client = StreamClient(self.http_client, response_timeout=0.01)
+                # Only the timeout case needs a short deadline. Slower runners
+                # must have time to deliver the mocked error response.
+                self.client = StreamClient(
+                    self.http_client, response_timeout=0.01 if timeout else 1.0)
                 socket = self.socket(code=9)
                 if timeout:
                     socket.send.side_effect = None
@@ -465,14 +468,16 @@ class CallbackRoutingTest(unittest.TestCase):
     def test_encoded_callback_preserves_original_oauth_redirect(self):
         callback = 'https://127.0.0.1:8182/oauth%20callback;v1'
         received = callback + '?code=test&state=test-state'
-        with patch('schwab.auth.multiprocess.Process') as process, \
-                patch('schwab.auth.multiprocess.Queue') as queue, \
+        with patch('schwab.auth.multiprocess') as multiprocess, \
                 patch('schwab.auth.psutil.Process'), \
                 patch('schwab.auth._wait_for_callback_server'), \
                 patch('schwab.auth.webbrowser.get'), \
                 patch('schwab.auth.get_auth_context') as context, \
                 patch('schwab.auth.client_from_received_url') as finish, \
                 patch('builtins.print'):
+            multiprocess.get_context.return_value = multiprocess
+            process = multiprocess.Process
+            queue = multiprocess.Queue
             queue.return_value.get.return_value = received
             auth.client_from_login_flow('key', 'secret', callback, 'unused', interactive=False)
         self.assertEqual(process.call_args.kwargs['args'][2], '/oauth callback;v1')
@@ -485,7 +490,9 @@ class CallbackRoutingTest(unittest.TestCase):
                          'https://user@127.0.0.1:8182',
                          'https://127.0.0.1:8182/#fragment'):
             with self.subTest(callback=callback), \
-                    patch('schwab.auth.multiprocess.Process') as process:
+                    patch('schwab.auth.multiprocess') as multiprocess:
                 with self.assertRaisesRegex(ValueError, 'HTTPS'):
                     auth.client_from_login_flow('key', 'secret', callback, 'unused')
-                process.assert_not_called()
+                multiprocess.Process.assert_not_called()
+                multiprocess.Queue.assert_not_called()
+                multiprocess.get_context.assert_not_called()

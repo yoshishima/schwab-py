@@ -44,16 +44,23 @@ your issues in the `Discord server <https://discord.gg/BEr6y6Xqyv>`__. See
 
   from schwab.auth import easy_client
 
-  # Follow the instructions on the screen to authenticate your client.
-  c = easy_client(
-          api_key='APIKEY',
-          app_secret='APP_SECRET',
-          callback_url='https://127.0.0.1',
-          token_path='/tmp/token.json')
+  if __name__ == '__main__':
+      # Follow the instructions on the screen to authenticate your client.
+      c = easy_client(
+              api_key='APIKEY',
+              app_secret='APP_SECRET',
+              callback_url='https://127.0.0.1',
+              token_path='/tmp/token.json')
 
-  resp = c.get_price_history_every_day('AAPL')
-  assert resp.status_code == httpx.codes.OK
-  history = resp.json()
+      resp = c.get_price_history_every_day('AAPL')
+      assert resp.status_code == httpx.codes.OK
+      history = resp.json()
+
+On macOS and Windows, the browser-assisted flow starts its callback server in a
+spawned child process. In a Python script, place calls to ``easy_client`` or
+``client_from_login_flow`` inside an ``if __name__ == '__main__':`` guard, as
+above. This prevents the child from starting another login flow when it imports
+the script.
 
 
 .. _login_flow:
