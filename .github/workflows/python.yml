@@ -49,10 +49,10 @@ jobs:
 
     - name: Upload coverage to Codecov  
       if: matrix.python.version == '3.14'
-      uses: codecov/codecov-action@v4.0.1
+      uses: codecov/codecov-action@v7.1.1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
+        files: ./coverage.xml
         flags: unittests
         name: GitHub
 
